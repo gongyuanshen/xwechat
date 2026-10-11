@@ -116,10 +116,12 @@ AMD 清单为 [`local_acceleration_dml.json`](../src/wechat_decrypt_tool/resourc
 | 源码真实推理 | 三个检索模型 CPU/DML 对比，OCR 三阶段及固定图片/PDF，正式 worker 重放 | 非私人固定样例，不是实际账号全流程 |
 | 生产 HTTP API | ASGI 路由的三检索模型与 OCR 验证真实执行通过；验证后业务状态仍是尚未运行 | 在进程内调用生产 API，不是浏览器到桌面的完整链路 |
 | PyInstaller frozen | 6.22.3 onedir 可执行程序调用正式 worker，BGE Small CPU/DML 与 OCR CPU/DML 均通过 | 使用真实 `aiPackagingArgs` 和依赖元数据；未覆盖三检索模型的全部 frozen 组合 |
-| v1.3.0 正式 onefile 后端 | 从最终发布包启动 HTTP API，三个检索模型与 OCR 三阶段真实 DML 验证通过；合成附件 CPU/DML OCR 全文一致、实际设备匹配且无回退 | 非私人固定样例；不等同真实账号全流程或所有输入性能保证 |
-| v1.3.0 安装包/ZIP | PE 版本、ASAR、静态 UI、ZIP CRC、NSIS 与展开目录逐文件哈希检查通过；OCR 权重、资源与依赖元数据完整 | 尚未覆盖安装器实际安装、升级、干净 Windows、其他物理显卡或 Electron 完整业务验收 |
+| v1.3.0 正式 onefile 后端 | 从最终发布包启动 HTTP API，三个检索模型与 OCR 三阶段真实 DML 验证通过；合成附件 CPU/DML OCR 全文一致、实际设备匹配且无回退 | 非私人固定样例；不等同真实账号全流程或所有输入性能保证；本次发布验收未发送微信消息，也未验证自动回复投递 |
+| v1.3.0 安装包/ZIP | PE 版本、ASAR、静态 UI、ZIP CRC、NSIS 与展开目录逐文件哈希检查通过；OCR 权重、资源与依赖元数据完整；包内未包含本机运行数据或凭据 | 尚未覆盖安装器实际安装、升级、干净 Windows、其他物理显卡或 Electron 完整业务验收 |
 | NVIDIA | 保留既有 CUDA 组件和接口，历史检索证据见检索文档 | 本机无 NVIDIA，未重跑本轮代码的 CUDA 实机矩阵；OCR 未接入 NVIDIA GPU |
 | 其他设备/平台 | CPU 路径保留，AMD 清单限定 Windows x64 | 其他 AMD、Intel GPU、Python 3.12/3.13 等没有本轮实机证据 |
+
+语音后端本版未新增 AMD 加速，Laya 继续使用 CPU；普通关键词搜索、数据库查询与 PDF 文本读取沿用现有实现。以上验证记录与限制保存在项目文档，GitHub Release 只保留版本变更、下载与必要使用说明。
 
 frozen 实测中，CPU 1.28.0 的模块和原生库位于 `_internal`，DirectML 1.24.4 来自完整外置组件目录；BGE Small warmup 为 250 GPU / 4 CPU，OCR 为 964 GPU / 4 CPU。已核验实际模块来源，不能仅用 frozen 导入成功代替推理验证。
 
