@@ -1,6 +1,6 @@
 <template>
   <section class="agent-reply agent-run">
-    <ChainOfThought v-model="open" class="agent-process-panel" :class="{ 'is-open': open, 'is-running': running }" aria-label="执行过程">
+    <div class="not-prose max-w-prose space-y-4 agent-process-panel" :class="{ 'is-open': open, 'is-running': running }" aria-label="执行过程">
     <button class="agent-process-toggle" type="button" :aria-expanded="open" :aria-controls="`process-${run.id}`" :title="open ? '收起执行过程' : '展开执行过程'" @click="toggle">
       <span class="agent-process-title">{{ running ? '执行中' : '执行过程' }}</span>
       <small class="agent-process-meta">{{ Math.floor(Math.max(0, elapsed || 0) / 60) }}分{{ Math.floor(Math.max(0, elapsed || 0)) % 60 }}秒</small>
@@ -31,7 +31,7 @@
         <time aria-hidden="true">{{ duration(activeTool ? (currentNow / 1000 - (activeTool.started_at ?? run.stage_started_at ?? currentNow / 1000)) : stageElapsed) }}</time>
       </div>
     </div>
-    </ChainOfThought>
+    </div>
     <div v-if="run.error" class="agent-error" role="alert">{{ run.error }}<details v-if="run.error_info?.diagnostic_id"><summary>诊断信息</summary><small>{{ run.error_info.category }} · {{ run.error_info.diagnostic_id }}</small></details></div>
     <div v-if="run.answer" class="agent-final-answer"><h3 v-if="run.status !== 'completed'" class="agent-answer-heading">{{ running ? '正在回答' : '未完成的回答' }}</h3><AgentAnswer :text="run.answer" :citations="run.citations || []" :references="run.references || []" :streaming="running" @locate="$emit('locate', $event)" /></div>
 
@@ -54,7 +54,6 @@ import { computed } from 'vue'
 import { Check, ChevronDown, ChevronRight, CirclePause, RotateCw } from '@lucide/vue'
 import AgentToolCall from './AgentToolCall.vue'
 import AgentSubtasks from './AgentSubtasks.vue'
-import ChainOfThought from '../ai-elements/chain-of-thought/ChainOfThought.vue'
 import AgentCopyAction from './AgentCopyAction.vue'
 import { groupTimelineTools } from '~/utils/agentTimeline'
 import AgentAnswer from './AgentAnswer.vue'

@@ -56,6 +56,7 @@ The table below describes features in the current source code. Previously downlo
 | Record export and account backup | Export HTML, JSON, TXT, and Excel; create full ZIP archives and incremental directory exports for chats and Moments; export complete account archives containing databases and resources |
 | Agent | Use a standalone entry point or an in-chat conversation; plan steps and call search and reading tools to trace events, to-dos, and relationship clues across chats; coordinate subtasks for complex analysis as needed, with original-message citations, execution progress, additional instructions, stop, and resume |
 | Chat AI tools | Summarize messages, run automatic summary tasks, and manage follow-up alerts and history; scheduled tasks run while the application is running and use the configured model service |
+| Experimental automatic replies | Opt in to text replies for selected private and group chats with a fixed model and custom instructions; groups default to mentions of you; inspect reply history and manually review uncertain sends |
 | Chat profiling and intent recognition | Analyze with local Laya or an explicitly selected API; generate person/group profiles, emotion and intent labels, chat characteristics, and tentative MBTI inferences; automatic recognition requires explicit opt-in |
 | Local semantic search | After downloading and enabling a retrieval model, gradually index all chats in the current account; combine keyword and semantic search, pause and resume indexing, and restrict individual queries by chat and date |
 | Local speech-to-text | Download and select CPU or NVIDIA GPU models; transcribe individual or batches of voice messages; preserve existing WeChat transcriptions and distinguish result sources |
@@ -69,7 +70,7 @@ The table below describes features in the current source code. Previously downlo
 
 Check [GitHub Releases](https://github.com/gongyuanshen/xwechat/releases) for published versions and their notes. Windows x64 packages are available in the following forms:
 
-The current project version is `1.1.0`. Version numbering for this independent project starts at `1.0.0`. Refer to the Releases page for the packages actually published and their versions.
+The current project version is `1.2.0`. Version numbering for this independent project starts at `1.0.0`. Refer to the Releases page for the packages actually published and their versions.
 
 - **Installer**: Run `xwechat-<version>-Setup.exe` and select a directory in the installation wizard.
 - **Portable package**: Fully extract `xwechat-<version>-Setup.zip` and run `xwechat.exe` from the extracted directory. Keep all resources in that directory.
@@ -131,6 +132,17 @@ For example: “Organize the plans and to-dos agreed on in last week’s project
 ### In-chat AI tools
 
 The **“Tools and tasks”** menu in the chat page’s right-side AI panel provides message summaries, automatic summary tasks, follow-up alerts, and history. Scheduled tasks run while the application is running, including when it is running in the system tray.
+
+### Experimental automatic replies
+
+Open **“Settings → AI services → Automatic replies”**, select the data account, a fixed model, and the private/group chats that may receive replies. Add custom instructions as needed. Select the WeChat window, confirm that it is logged in to the selected data account, and choose **“Save and apply”**. Automatic replies are disabled by default; changing the chat panel's model does not change this fixed model. Relevant chat text is sent to the selected service.
+
+- **Scope and timing**: Only new text messages observed after activation can trigger replies. Newly added groups default to mentions of you; you can change each group's trigger. The chat input toolbar can add or remove the current conversation. Clearing the scope and applying stops replies; new conversations are not included automatically. Processing depends on snapshot synchronization and runs while the application is running, including in the system tray.
+- **Window and account limits**: Only one data account can run automatic replies at a time. Sending activates the bound Windows WeChat window and locates conversations by their full, exact display names. Duplicate names, changed names, and conflicting drafts can pause a conversation. This does not establish a verified live account or recipient ID binding; do not switch WeChat accounts while replies are enabled.
+- **Sending and review**: “Displayed in client” means local UI evidence, not delivery or read confirmation. An uncertain submission pauses that conversation for manual review and is never automatically retried. Old batches are not resent after review or recovery. Restarting the application requires window/account confirmation and activation again.
+- **History cleanup**: Delete individual completed, cancelled, failed, or interrupted records, or use **“Delete all”** to clear eligible records across every conversation and page in the current account, regardless of filters. This hides records from the history view while retaining submission and deduplication evidence. Records still processing or awaiting review remain visible; WeChat messages are not deleted or recalled.
+
+See [Windows WeChat sending (Chinese)](docs/wechat-qt-send.md) for the window automation and confirmation boundaries. Automated checks do not establish acceptance with a real model or a complete real WeChat automatic-reply workflow.
 
 ### Local Laya profiling and automatic recognition
 
@@ -290,6 +302,7 @@ Account archives are intended to back up databases and resources. They do not co
 - **WXGF and platforms**: Both Windows x64 source runs and the frozen desktop backend use the bundled `VoipEngine.dll` to decode WXGF in a separate subprocess. Transparent images and complete animations have been verified with controlled samples. Unknown formats, corrupt content, native crashes, and timeouts produce explicit errors. This does not establish compatibility with arbitrary WeChat media or other platforms.
 - **Media and the three-dimensional interface**: Availability depends on image keys, original attachments, FFmpeg, and the graphics environment. When a video cannot be displayed, you can manually generate a local preview as prompted. The three-dimensional annual experience requires an available WebGL environment; detailed statistics and offline sharing are separate capabilities.
 - **WeChat sending**: WeChat must be running, logged in, unlocked, and have an accessible window. Sending briefly activates WeChat. A send receipt does not mean that the recipient has received or read the message. If the result awaits confirmation, check WeChat first and do not repeatedly click to resend.
+- **Automatic replies**: Account confirmation is supplied by the user; exact display-name routing is not recipient ID verification. Snapshot delays affect triggering. Unknown submissions remain pending review without automatic retries, and restarting does not reactivate replies.
 - **Record page scope**: The mini program page displays information and does not run mini programs. The Channels page primarily shows local live-stream caches. The payments page displays records and does not execute transactions. Cached revocation candidates are not actual revocation notifications.
 - **AI results and coverage**: Models can misclassify; citations and statistics should be checked against original messages. Missing attachments, insufficient index coverage, unfinished tasks, and unknown usage are separate issues and must not be treated as complete analysis.
 - **Platforms and release status**: These instructions and packaging entry points target Windows x64. Experiments for other platforms and historical acceptance records in the repository do not mean this version offers the same packages and WeChat features. Older Releases and local build outputs do not update automatically when the source changes.

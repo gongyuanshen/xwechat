@@ -74,8 +74,10 @@ async def start_services():
     from .service import get_ai_service
     from .agent_service import get_agent_service
     from .insights import get_insight_service
+    from .auto_reply import get_auto_reply_service
     from ..local_search.service import get_local_search
     get_ai_service().store.recover_interrupted_usage()
+    get_auto_reply_service().recover()
     get_ai_service().start()
     get_insight_service().start()
     await get_agent_service().start()
@@ -88,9 +90,10 @@ async def stop_services():
     from .service import get_ai_service
     from .agent_service import get_agent_service
     from .insights import get_insight_service
+    from .auto_reply import get_auto_reply_service
     from ..local_search.service import get_local_search
     _stop_store_maintenance()
-    for name, factory in (('search',get_local_search),('insights',get_insight_service),('summary',get_ai_service),('agent',get_agent_service)):
+    for name, factory in (('auto_reply',get_auto_reply_service),('search',get_local_search),('insights',get_insight_service),('summary',get_ai_service),('agent',get_agent_service)):
         try:
             await factory().stop()
         except Exception as error:

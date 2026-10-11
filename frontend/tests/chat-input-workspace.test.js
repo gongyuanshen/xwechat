@@ -7,6 +7,8 @@ import ConversationPane from '../components/chat/ConversationPane.vue'
 import { useApi } from '../composables/useApi'
 import { agentModelSelection } from '../lib/agent-model-selection'
 
+vi.mock('../components/chat/AutoReplyControl.vue', () => ({ default: { template: '<span />' } }))
+
 const createDeferred = () => {
   let resolve, reject
   const promise = new Promise((res, rej) => {

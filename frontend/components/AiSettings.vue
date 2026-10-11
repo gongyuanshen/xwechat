@@ -14,6 +14,7 @@
       </button>
     </div>
     <LocalSearchSettings v-if="activeTab === 'local'" account-wide id="ais-local" role="tabpanel" aria-labelledby="ais-local-tab" />
+    <AutoReplySettings v-if="activeTab === 'auto-reply'" id="ais-auto-reply" role="tabpanel" aria-labelledby="ais-auto-reply-tab" />
     <p v-if="error" role="alert" class="ais-feedback is-error">{{ error }}</p>
     <p v-if="notice" role="status" class="ais-feedback is-success"><CircleCheck :size="16" :stroke-width="1.8" aria-hidden="true" />{{ notice }}</p>
 
@@ -146,6 +147,7 @@
 import { ChartBar, ChartNoAxesColumn, Check, ChevronRight, CircleCheck, Download, Image as ImageIcon, LoaderCircle, Lock, Plug, Plus, RefreshCw, Search, Trash2, WandSparkles, X } from '@lucide/vue'
 import AiModelMetadata from './AiModelMetadata.vue'
 import LocalSearchSettings from './LocalSearchSettings.vue'
+import AutoReplySettings from './AutoReplySettings.vue'
 import AiProviderIcon from './AiProviderIcon.vue'
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import UiSelect from './UiSelect.vue'
@@ -154,6 +156,7 @@ const activeTab = ref('config')
 const settingsTabs = [
   {id:'config',label:'模型服务',hint:'连接与模型配置',icon:Plug},
   {id:'local',label:'本地检索',hint:'按意思查找聊天',icon:Search},
+  {id:'auto-reply',label:'自动回复',hint:'指定聊天自动发送',icon:WandSparkles},
   {id:'usage',label:'用量记录',hint:'调用明细与消耗',icon:ChartNoAxesColumn},
 ]
 function navigateTabs(event,id){
@@ -167,7 +170,10 @@ function navigateTabs(event,id){
 const localSettingsTarget = useSettingsDialog().focusTarget || ref('')
 // 服务连接结果不带入本地检索、Agent 或审计页面。
 watch(activeTab, () => { error.value = ''; notice.value = ''; auditRemoval.value = null })
-watch(localSettingsTarget, target => { if (target === 'local-search') activeTab.value = 'local' }, { immediate: true })
+watch(localSettingsTarget, target => {
+  if (target === 'local-search') activeTab.value = 'local'
+  if (target === 'auto-reply') activeTab.value = 'auto-reply'
+}, { immediate: true })
 const formatNumber = (value) => Number(value || 0).toLocaleString('zh-CN')
 const protocolOptions = [{ value: 'openai', label: 'OpenAI 兼容' }, { value: 'anthropic', label: 'Claude Messages' }]
 const providerPresentation = {
@@ -403,6 +409,8 @@ onMounted(() => action(load))
 </script>
 
 <style scoped>
+.ais-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@container (max-width: 700px) { .ais-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .ai-settings .ais-audit-toolbar, .ai-settings .ais-audit-toolbar > div:last-child { flex-wrap: wrap; }
 .ai-settings .ais-audit-table { min-width: 560px; }
 .ai-settings .ais-audit-table th:first-child { width: 36%; }

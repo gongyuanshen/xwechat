@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ref, computed, reactive, nextTick } from 'vue'
 import MessageInputWorkspace from '../components/chat/MessageInputWorkspace.vue'
 
+vi.mock('../components/chat/AutoReplyControl.vue', () => ({ default: { template: '<span />' } }))
+
 const createDeferred = () => {
   let resolve, reject
   const promise = new Promise((res, rej) => {

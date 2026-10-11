@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import MessageRecognitionControl from '../components/chat/MessageRecognitionControl.vue'
 import ConversationPane from '../components/chat/ConversationPane.vue'
 
+vi.mock('../components/chat/AutoReplyControl.vue', () => ({ default: { template: '<span />' } }))
+
 const state = () => ({ enabled: ref(false), loading: ref(false), saving: ref(false), error: ref(''), pending: ref(0), validScope: ref(true), batch: ref(null), setEnabled: vi.fn(), retry: vi.fn() })
 afterEach(() => vi.unstubAllGlobals())
 describe('意图识别入口', () => {

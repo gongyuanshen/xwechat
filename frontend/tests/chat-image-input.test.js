@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, reactive, ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import MessageInputWorkspace from '../components/chat/MessageInputWorkspace.vue'
+
+vi.mock('../components/chat/AutoReplyControl.vue', () => ({ default: { template: '<span />' } }))
 import { useApi } from '../composables/useApi'
 
 const image = {

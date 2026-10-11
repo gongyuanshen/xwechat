@@ -34,7 +34,6 @@ def documented_metadata(profile, model):
             and endpoint.path.rstrip('/') in ('', '/v1', '/v1/chat/completions', '/v1/models')
             and model in ('deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp')):
         return {'thinking_types': ['enabled', 'disabled'], 'thinking_default': 'enabled',
-            'correction_reasoning_effort': 'low',
             'thinking_documentation_url': 'https://api-docs.deepseek.com/guides/thinking_mode/'}
     # 不将官方接口的能力套到同名代理模型，也不按模型前缀推断新版本。
     if (profile.get('protocol') == 'openai' and endpoint.scheme == 'https'

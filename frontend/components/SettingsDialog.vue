@@ -1033,7 +1033,7 @@ const scrollToFocusTarget = async () => {
     scrollToSection('storage')
     return
   }
-  if (focusTarget === 'ai' || focusTarget === 'local-search') {
+  if (focusTarget === 'ai' || focusTarget === 'local-search' || focusTarget === 'auto-reply') {
     await nextTick()
     scrollToSection('ai')
     return

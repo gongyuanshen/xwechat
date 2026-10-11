@@ -32,6 +32,7 @@ class WeChatQtUI:
         self.automation = automation
         self.root = automation.ControlFromHandle(hwnd)
         self.deadline = time.monotonic() + timeout_s
+        self.submission_intended = False
         self.submission_attempted = False
         self.stage = "session"
 
@@ -143,7 +144,7 @@ class WeChatQtUI:
         value = edit.GetValuePattern()
         text = edit.GetTextPattern()
         if value is None or text is None:
-            raise WeChatBridgeError("微信输入框未提供附件草稿核验接口",
+            raise WeChatBridgeError("微信输入框未提供草稿核验接口",
                                     code=f"WECHAT_{kind.upper()}_DRAFT_UNCONFIRMED", status_code=502)
         return value.Value, text.DocumentRange.GetText(-1), len(text.DocumentRange.GetChildren())
 
@@ -303,12 +304,26 @@ class WeChatQtUI:
             "未确认文件草稿清空及对应的新文件卡片完成上传；请在微信核对，避免重复发送",
             code="WECHAT_SEND_UNCONFIRMED", status_code=504))
 
-    def send_text(self, session: str, content: str) -> None:
+    def send_text(self, session: str, content: str, *,
+                  verify_before_submit: Callable[[], None] | None = None,
+                  persist_submission: Callable[[], None] | None = None,
+                  window_api=None) -> dict:
+        """Submit once and return local UI evidence, never a delivery receipt."""
+        if self.submission_intended or self.submission_attempted:
+            raise WeChatBridgeError("本次提交已进入发送阶段，请先核对微信，不能重复提交",
+                                    code="WECHAT_SEND_ALREADY_ATTEMPTED", status_code=409)
+        if window_api is None and (verify_before_submit is not None or persist_submission is not None):
+            raise WeChatBridgeError("受控发送必须提供绑定窗口的前台核验接口",
+                                    code="WECHAT_SEND_WINDOW_REQUIRED", status_code=400)
         edit = self.prepare_session(session)
         self.stage = "write"
-        existing = edit.GetValuePattern().Value
-        if existing and _text(existing) != _text(content):
-            raise WeChatBridgeError("微信输入框已有其他草稿，请先处理草稿后重试", code="WECHAT_DRAFT_CONFLICT", status_code=409)
+        existing_value, existing_text, children = self._attachment_draft(edit, "text")
+        expected_draft = (_text(content), _text(content), 0)
+        if ("\ufffc" in existing_value or "\ufffc" in existing_text
+                or (_text(existing_value), _text(existing_text), children)
+                not in (("", "", 0), expected_draft)):
+            raise WeChatBridgeError("微信输入框已有其他文字或附件草稿，请先处理后重试",
+                                    code="WECHAT_DRAFT_CONFLICT", status_code=409)
         self._focus(edit)
         self._write(edit, content)
 
@@ -320,13 +335,53 @@ class WeChatQtUI:
         button = panel.ButtonControl(Name="发送")
         self._wait(lambda: button.Exists(0) and button.IsEnabled and not button.IsOffscreen,
                    WeChatBridgeError("微信发送按钮不可用", code="WECHAT_SEND_BUTTON_NOT_FOUND", status_code=502))
+
+        def checked_controls():
+            current = self.locate_input(session)
+            current_panel = self.root.GroupControl(AutomationId="chat_message_page")
+            if (current is None or not current_panel.Exists(0)
+                    or not current_panel.IsEnabled or current_panel.IsOffscreen
+                    or (window_api is not None and window_api.GetForegroundWindow() != self.hwnd)):
+                raise WeChatBridgeError("发送前微信前台、会话或控件状态发生变化，已中止",
+                                        code="WECHAT_SEND_STATE_CHANGED", status_code=409)
+            current_button = current_panel.ButtonControl(Name="发送")
+            if not current_button.Exists(0) or not current_button.IsEnabled or current_button.IsOffscreen:
+                raise WeChatBridgeError("发送前微信发送按钮状态发生变化，已中止",
+                                        code="WECHAT_SEND_STATE_CHANGED", status_code=409)
+            value, text, embedded = self._attachment_draft(current, "text")
+            if (_text(value), _text(text), embedded) != expected_draft:
+                raise WeChatBridgeError("发送前微信草稿发生变化，已中止",
+                                        code="WECHAT_SEND_STATE_CHANGED", status_code=409)
+            if not self.root.ListControl(AutomationId="chat_message_list").Exists(0):
+                raise WeChatBridgeError("微信消息列表不可用，无法核实发送结果",
+                                        code="WECHAT_MESSAGE_LIST_NOT_FOUND", status_code=502)
+            if time.monotonic() >= self.deadline:
+                raise WeChatBridgeError("文字发送准备已超时，未点击发送；请核对微信草稿",
+                                        code="WECHAT_SEND_TIMEOUT", status_code=504)
+            return current_button
+
+        checked_controls()
+        if verify_before_submit is not None:
+            verify_before_submit()
+            checked_controls()
+        if persist_submission is not None:
+            self.stage = "submit_intent"
+            persist_submission()
+            self.submission_intended = True
+            # A stop/configuration change while persisting still prevents the
+            # click, but the saved intent must remain pending verification.
+            if verify_before_submit is not None:
+                verify_before_submit()
         messages = self.root.ListControl(AutomationId="chat_message_list")
         if not messages.Exists(0):
-            raise WeChatBridgeError("微信消息列表不可用，无法核实发送结果", code="WECHAT_MESSAGE_LIST_NOT_FOUND", status_code=502)
-        before = self._message_ids(messages, content)
-        # Recheck the target and exact draft immediately before the only send.
-        if not self.locate_input(session) or _text(edit.GetValuePattern().Value) != _text(content):
-            raise WeChatBridgeError("发送前会话或草稿发生变化，已中止", code="WECHAT_SEND_STATE_CHANGED", status_code=409)
+            raise WeChatBridgeError("微信消息列表不可用，无法核实发送结果",
+                                    code="WECHAT_MESSAGE_LIST_NOT_FOUND", status_code=502)
+        before = {tuple(item.GetRuntimeId()) for item in messages.GetChildren()}
+        button = checked_controls()
+        # UIA enumeration can outlast a stop/configuration update. Check the
+        # task and binding again after those calls, at the submit boundary.
+        if verify_before_submit is not None:
+            verify_before_submit()
 
         self.stage = "confirm"
         self.submission_attempted = True
@@ -336,9 +391,15 @@ class WeChatQtUI:
         button.Click(simulateMove=False, waitTime=0)
         def confirmed():
             current = self.locate_input(session)
-            return (current is not None and current.GetValuePattern().Value == ""
-                    and bool(self._message_ids(messages, content) - before))
-        self._wait(confirmed, WeChatBridgeError(
-            "未确认微信输入框清空及新消息出现；请先核对客户端，避免重复发送",
+            current_messages = self.root.ListControl(AutomationId="chat_message_list")
+            if (current is None or self._attachment_draft(current, "text") != ("", "", 0)
+                    or not current_messages.Exists(0)):
+                return None
+            new_ids = self._message_ids(current_messages, content) - before
+            if len(new_ids) == 1:
+                return {"input_cleared": True, "new_message_runtime_ids": [list(next(iter(new_ids)))]}
+            return None
+        return self._wait(confirmed, WeChatBridgeError(
+            "未确认微信输入框清空及恰好一个新同文消息；请先核对客户端，避免重复发送",
             code="WECHAT_SEND_UNCONFIRMED", status_code=504,
         ))

@@ -7,6 +7,8 @@ import AgentThreadList from '../components/chat/AgentThreadList.vue'
 import AgentModelPicker from '../components/chat/AgentModelPicker.vue'
 import AgentContextRing from '../components/chat/AgentContextRing.vue'
 import MessageInputWorkspace from '../components/chat/MessageInputWorkspace.vue'
+
+vi.mock('../components/chat/AutoReplyControl.vue', () => ({ default: { template: '<span />' } }))
 import { useAgentPanelResize } from '../composables/useAgentPanelResize'
 import ErrorNotice from '../components/ErrorNotice.vue'
 

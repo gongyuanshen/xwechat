@@ -113,7 +113,7 @@ function main() {
     "sherpa_onnx",
     "--collect-all",
     "watchfiles",
-    ...aiPackagingArgs(repoRoot),
+    ...aiPackagingArgs(),
     entry,
   ];
 

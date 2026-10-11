@@ -1,5 +1,5 @@
-import { mount, flushPromises } from '@vue/test-utils'
-import { describe, it, expect } from 'vitest'
+import { DOMWrapper, mount, flushPromises } from '@vue/test-utils'
+import { afterEach, describe, it, expect } from 'vitest'
 import UiSelect from '../components/UiSelect.vue'
 
 const props = { label: '接口协议', modelValue: 'a', options: [
@@ -95,5 +95,106 @@ describe('统一下拉菜单', () => {
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })); await flushPromises()
     expect(trigger.attributes('aria-expanded')).toBe('false')
     wrapper.unmount()
+  })
+})
+
+describe('统一下拉菜单多选', () => {
+  let wrapper
+  afterEach(() => wrapper?.unmount())
+  const setup = (extra, realTeleport = false) => {
+    wrapper = mount(UiSelect, { attachTo: document.body, props: { ...props, modelValue: [], multiple: true, ...extra,
+      'onUpdate:modelValue': value => wrapper.setProps({ modelValue: value }),
+    }, global: { stubs: { teleport: !realTeleport } } })
+    return wrapper
+  }
+  it('单项增删使用数组、勾选状态同步且菜单保持展开，收起只显示摘要', async () => {
+    setup({ summary: '已选 1 个群聊、1 个私聊' })
+    const trigger = wrapper.find('.ui-select-trigger')
+    await trigger.trigger('click')
+    expect(wrapper.find('[role=listbox]').attributes('aria-multiselectable')).toBe('true')
+    await wrapper.findAll('[role=option]')[0].trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['a']]])
+    expect(wrapper.findAll('[role=option]')[0].attributes('aria-selected')).toBe('true')
+    expect(wrapper.findAll('[role=option]')[0].find('.ui-select-checkbox').exists()).toBe(true)
+    await wrapper.findAll('[role=option]')[2].trigger('click')
+    expect(wrapper.emitted('change').at(-1)).toEqual([['a', 'c']])
+    expect(trigger.attributes('aria-expanded')).toBe('true')
+    await wrapper.findAll('[role=option]')[0].trigger('click')
+    expect(wrapper.emitted('update:modelValue').at(-1)).toEqual([['c']])
+    await trigger.trigger('click')
+    expect(trigger.text()).toBe('已选 1 个群聊、1 个私聊')
+    expect(trigger.attributes('title')).toBe('已选 1 个群聊、1 个私聊')
+    expect(wrapper.find('.ui-select-menu').exists()).toBe(false)
+  })
+  it('搜索后全选仍覆盖整个可用列表，禁用项不能点击或被全选与清空改变', async () => {
+    setup({ searchable: true, modelValue: ['b'] })
+    await wrapper.find('.ui-select-trigger').trigger('click')
+    await wrapper.findAll('[role=option]')[1].trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await wrapper.find('input').setValue('Alpha')
+    const all = wrapper.findAll('.ui-select-actions button').find(button => button.text() === '全选所有')
+    await all.trigger('click')
+    expect(wrapper.emitted('update:modelValue').at(-1)).toEqual([['b', 'a', 'c']])
+    expect(wrapper.findAll('[role=option]')).toHaveLength(1)
+    expect(wrapper.find('.ui-select-trigger').attributes('aria-expanded')).toBe('true')
+    await wrapper.findAll('.ui-select-actions button').find(button => button.text() === '清空选择').trigger('click')
+    expect(wrapper.emitted('update:modelValue').at(-1)).toEqual([['b']])
+    expect(wrapper.find('.ui-select-trigger').text()).toBe('已选择 1 项')
+  })
+  it('方向键跳过禁用项，Enter 与空格切换选择不关闭，Escape 才关闭', async () => {
+    setup()
+    const trigger = wrapper.find('.ui-select-trigger')
+    await trigger.trigger('keydown', { key: 'ArrowDown' })
+    await trigger.trigger('keydown', { key: ' ' })
+    await trigger.trigger('keydown', { key: 'ArrowDown' })
+    await trigger.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['a']], [['a', 'c']]])
+    expect(trigger.attributes('aria-expanded')).toBe('true')
+    await trigger.trigger('keydown', { key: 'Escape' })
+    expect(trigger.attributes('aria-expanded')).toBe('false')
+    expect(trigger.text()).toBe('已选择 2 项')
+  })
+  it('未提供多选初值时从空数组开始，全选跳过禁用项，清空后恢复占位且不重复发出变更', async () => {
+    setup({ modelValue: undefined, placeholder: '选择聊天' })
+    const trigger = wrapper.find('.ui-select-trigger')
+    expect(trigger.text()).toBe('选择聊天')
+    await trigger.trigger('click')
+    const actions = wrapper.findAll('.ui-select-actions button')
+    await actions[0].trigger('click')
+    await actions[0].trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['a', 'c']]])
+    await actions[1].trigger('click')
+    await actions[1].trigger('click')
+    expect(wrapper.emitted('change')).toEqual([[['a', 'c']], [[]]])
+    expect(trigger.text()).toBe('选择聊天')
+  })
+  it('搜索输入回车切换选择后仍保留搜索焦点和过滤，Tab 可到批量操作', async () => {
+    setup({ searchable: true }, true)
+    await wrapper.find('.ui-select-trigger').trigger('click'); await flushPromises()
+    const menu = new DOMWrapper(document.querySelector('.ui-select-menu'))
+    const input = menu.find('input')
+    expect(document.activeElement).toBe(input.element)
+    await input.setValue('Claude')
+    expect(document.activeElement).toBe(input.element)
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['c']]])
+    expect(input.element.value).toBe('Claude')
+    expect(document.activeElement).toBe(input.element)
+    await input.trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement).toBe(menu.find('.ui-select-actions button').element)
+    await menu.find('.ui-select-actions button').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('.ui-select-trigger').attributes('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(wrapper.find('.ui-select-trigger').element)
+  })
+  it('无搜索时 Tab 可进入批量操作，Shift Tab 返回触发器并关闭菜单', async () => {
+    setup({}, true)
+    const trigger = wrapper.find('.ui-select-trigger')
+    await trigger.trigger('click')
+    await trigger.trigger('keydown', { key: 'Tab' })
+    const all = new DOMWrapper(document.querySelector('.ui-select-actions button'))
+    expect(document.activeElement).toBe(all.element)
+    await all.trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(trigger.attributes('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(trigger.element)
   })
 })

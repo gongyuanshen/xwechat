@@ -145,7 +145,7 @@ class DeepChatModel(BaseChatModel):
             extra = self.bound_tools if self.bound_tools and not fallback else None
             try:
                 measured = check_request({**profile, 'context_purpose': self.purpose}, request, extra,
-                    output_tokens=model_output_limit(profile, self.purpose))
+                    output_tokens=model_output_limit(profile))
             except ContextOverflow as exc:
                 from langchain_core.exceptions import ContextOverflowError
                 raise ContextOverflowError(str(exc)) from None
@@ -167,18 +167,12 @@ class DeepChatModel(BaseChatModel):
                 async with call_timeout, self.service.ai.models.semaphore:
                     acquired = time.monotonic()
                     self.guard()
-                    # 首轮核验采用轻量调用；结构纠正和正文修复恢复正常推理，避免每批长时间思考。
-                    with model_policy(auxiliary=self.purpose not in ('agent', 'evidence_adjudication', 'citation_repair')):
-                        from .model_catalog import documented_metadata
-                        correction_effort = documented_metadata(profile, profile['model']).get('correction_reasoning_effort')
-                        request_profile = {**profile, 'reasoning_effort': correction_effort} if (correction_effort
-                            and self.purpose in ('evidence_adjudication', 'citation_repair') and not profile.get('reasoning_effort')
-                            and profile.get('thinking_mode') is None and profile.get('thinking_budget') is None) else profile
-                        client = self.service.ai.models.client(request_profile)
+                    with model_policy(auxiliary=self.purpose != 'agent'):
+                        client = self.service.ai.models.client(profile)
                     if extra:
                         client = client.bind_tools(extra, tool_choice='none' if self.purpose == 'summary' else 'auto')
-                    opts = {'max_tokens': model_output_limit(profile, self.purpose)}
-                    if profile.get('protocol') == 'openai' and profile.get('model_metadata', {}).get('structured_output') is True and ((fallback and self.bound_tools) or self.purpose in ('evidence_review', 'evidence_adjudication')):
+                    opts = {'max_tokens': model_output_limit(profile)}
+                    if profile.get('protocol') == 'openai' and profile.get('model_metadata', {}).get('structured_output') is True and fallback and self.bound_tools:
                         opts['response_format'] = {'type': 'json_object'}
                     sent_at = time.time()
                     self.service.spend(run['id'], 'models')

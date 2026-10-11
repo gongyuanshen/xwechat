@@ -137,6 +137,7 @@ class SnapshotRefreshService:
             "account": account, "enabled": False, "running": False, "phase": "disabled", "user_paused": False,
             "interval_seconds": 30, "last_checked_at": None, "last_success_at": None,
             "probe_interval_seconds": 0.5, "last_check_trigger": None,
+            "request_id": 0, "completed_request_id": 0,
             "revision": 0, "generation": None, "guarantee": "stable_observation", "error": None,
             "retained_bytes": _retained_bytes(get_output_dir() / "verified_snapshots"),
             "source_path": context.db_storage_path,
@@ -227,6 +228,7 @@ class SnapshotRefreshService:
             if self._active is not None:
                 active_state = self._states[self._active]
                 if self._active == account and not continuous and active_state["enabled"]:
+                    active_state["request_id"] += 1
                     if not active_state["running"]:
                         active_state.update(phase="checking", running=True)
                     self._wake.set()
@@ -245,10 +247,12 @@ class SnapshotRefreshService:
             self._stop.clear()
             self._wake.clear()
             self._active = account
+            state["request_id"] += 1
             self._thread = threading.Thread(target=self._run, args=(account, work_lease), name="independent-snapshot-refresh", daemon=True)
             try:
                 self._thread.start()
             except Exception as exc:
+                state["request_id"] -= 1
                 work_lease.release()
                 self._fail(state, "worker", exc)
                 self._active = None
@@ -352,6 +356,7 @@ class SnapshotRefreshService:
                     # Consume only requests that preceded this check. Requests
                     # made during capture/decrypt remain set for a trailing check.
                     self._wake.clear()
+                    request_id = state["request_id"]
                     state.update(running=True, phase="checking", last_check_trigger=trigger)
                 stage = "source"
                 context, source, key = self._inputs(account)
@@ -383,7 +388,9 @@ class SnapshotRefreshService:
                     break
                 if manifest == self._manifests.get(account):
                     with self._lock:
-                        state.update(phase="unchanged", running=False)
+                        if self._stop.is_set():
+                            break
+                        state.update(phase="unchanged", running=False, completed_request_id=request_id)
                 else:
                     stage = "capacity"
                     parent = get_output_dir() / "verified_snapshots"
@@ -428,6 +435,7 @@ class SnapshotRefreshService:
                         self._manifests[account] = result["manifest"]
                         state.update(revision=pointer["revision"], generation=Path(pointer["generation_path"]).name,
                                      last_success_at=pointer["published_at"], guarantee=result["guarantee"],
+                                     completed_request_id=request_id,
                                      phase="archiving", running=True, archive_progress=dict(
                                          initial=state["archive_generation"] is None,
                                          messages_processed=0, databases_done=0, databases_total=0))

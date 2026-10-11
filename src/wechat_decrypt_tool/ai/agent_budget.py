@@ -42,9 +42,9 @@ def output_limit(profile):
     return min(4096, max(256, int(profile.get('context_window') or 32768) // 4))
 
 
-def model_output_limit(profile, purpose='agent'):
+def model_output_limit(profile):
     """实际请求参数与输入预留使用同一出口，不按模型最大输出能力虚留空间。"""
-    return min(output_limit(profile), 16384 if purpose in ('evidence_adjudication', 'citation_repair') else 8192)
+    return min(output_limit(profile), 8192)
 
 
 def request_size(messages, extra=None):

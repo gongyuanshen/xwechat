@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { reactive, ref } from 'vue'
 import MessageInputWorkspace from '../components/chat/MessageInputWorkspace.vue'
 
+vi.mock('../components/chat/AutoReplyControl.vue', () => ({ default: { template: '<span />' } }))
+
 const image = { kind: 'image', path: 'C:\\照片\\图.png', name: '图.png', sizeBytes: 512, previewDataUrl: 'data:image/png;base64,aW1hZ2U=' }
 const file = { kind: 'file', path: 'C:\\资料\\报告.pdf', name: '报告.pdf', sizeBytes: 2048 }
 const first = { kind: 'file', path: 'C:\\资料\\首项.txt', name: '首项.txt', sizeBytes: 1 }

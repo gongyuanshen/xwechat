@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import stat
 import sys
+import threading
 import time
 from typing import Any, Callable, Literal, Optional, Union
 
@@ -80,6 +81,22 @@ class WeChatProcessNotFoundError(WeChatBridgeError):
 
     def __init__(self, detail: str | None = None) -> None:
         super().__init__(detail=detail if detail is not None else self.detail)
+
+
+class ControlledSendError(WeChatBridgeError):
+    """Persistable boundary evidence; an intent is uncertain even before Click."""
+
+    def __init__(self, detail: str, *, code: str, status_code: int, stage: str,
+                 submission_intended: bool, submission_attempted: bool) -> None:
+        super().__init__(detail, code=code, status_code=status_code)
+        self.stage = stage
+        self.submission_intended = submission_intended
+        self.submission_attempted = submission_attempted
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**super().to_dict(), "stage": self.stage,
+                "submission_intended": self.submission_intended,
+                "submission_attempted": self.submission_attempted}
 
 
 class WeChatWindowNotFoundError(WeChatBridgeError):
@@ -153,6 +170,25 @@ class SendReceipt:
     success: bool
     session_title: str
     content_length: int
+    duration_ms: float
+    timestamp: float
+
+
+@dataclass(frozen=True)
+class WeChatWindowBinding:
+    pid: int
+    process_created_at: float
+    hwnd: int
+
+
+@dataclass
+class ControlledTextReceipt:
+    account: str
+    session_id: str
+    target_name: str
+    run_id: str
+    status: str
+    evidence: dict[str, Any]
     duration_ms: float
     timestamp: float
 
@@ -802,6 +838,131 @@ class WeChatBridge:
         self._activate_window(hwnd)
         return hwnd
 
+    def list_send_windows(self) -> list[WeChatWindowBinding]:
+        """Read-only candidates for explicit selection; no login identity claim."""
+        if sys.platform != "win32":
+            raise WeChatBridgeError("自动回复仅支持 Windows 微信 Qt 客户端",
+                                    code="WECHAT_CONTROLLED_SEND_UNSUPPORTED", status_code=501)
+        if self._is_workstation_locked():
+            raise WeChatLockedError()
+        import uiautomation as auto
+
+        candidates = []
+        def inspect(hwnd, _extra):
+            if not self.win32gui.IsWindow(hwnd):
+                return
+            if not self.win32gui.GetClassName(hwnd).lower().startswith("qt"):
+                return
+            pid = self.win32process.GetWindowThreadProcessId(hwnd)[1]
+            process = psutil.Process(pid)
+            if process.name().lower() not in ("wechat.exe", "weixin.exe"):
+                return
+            if auto.ControlFromHandle(hwnd).ClassName == "mmui::MainWindow":
+                candidates.append(WeChatWindowBinding(pid, process.create_time(), hwnd))
+        try:
+            with auto.UIAutomationInitializerInThread():
+                self.win32gui.EnumWindows(inspect, None)
+        except Exception as exc:
+            raise WeChatBridgeError("无法枚举微信发送窗口，请检查进程和 UIA 状态",
+                                    code="WECHAT_WINDOW_PROBE_FAILED", status_code=502) from exc
+        return candidates
+
+    def validate_window_binding(self, binding: WeChatWindowBinding) -> None:
+        """Validate only the selected process/window, never search a replacement."""
+        if self._is_workstation_locked():
+            raise WeChatLockedError()
+        try:
+            valid = (self.win32gui.IsWindow(binding.hwnd)
+                     and self.win32process.GetWindowThreadProcessId(binding.hwnd)[1] == binding.pid
+                     and psutil.Process(binding.pid).create_time() == binding.process_created_at
+                     and self.win32gui.GetClassName(binding.hwnd).lower().startswith("qt"))
+        except (psutil.Error, OSError) as exc:
+            raise WeChatBridgeError("绑定的微信进程或窗口已失效，请重新确认账号并启用",
+                                    code="WECHAT_WINDOW_BINDING_CHANGED", status_code=409) from exc
+        if not valid:
+            raise WeChatBridgeError("绑定的微信进程或窗口已变化，请重新确认账号并启用",
+                                    code="WECHAT_WINDOW_BINDING_CHANGED", status_code=409)
+        import uiautomation as auto
+        with auto.UIAutomationInitializerInThread():
+            if auto.ControlFromHandle(binding.hwnd).ClassName != "mmui::MainWindow":
+                raise WeChatBridgeError("绑定窗口已不是微信主窗口",
+                                        code="WECHAT_WINDOW_BINDING_CHANGED", status_code=409)
+        if self._check_window_locked(binding.hwnd):
+            raise WeChatLockedError()
+
+    async def send_controlled_text(self, *, account: str, session_id: str, target_name: str,
+                                   content: str, run_id: str, binding: WeChatWindowBinding,
+                                   verify_before_submit: Callable[[], None],
+                                   persist_submission: Callable[[], None],
+                                   check_before_send=None) -> ControlledTextReceipt:
+        """One controlled attempt. Durable task ownership belongs to the caller.
+
+        Verification runs under the async lock and again in the UI worker;
+        persist_submission runs in the worker and must atomically claim the
+        pending task and reject any second claim. Account and chat IDs
+        label data ownership, not identities read from the WeChat window.
+        """
+        fields = (account, session_id, target_name, content, run_id)
+        if any(not isinstance(value, str) or not value.strip() for value in fields):
+            raise WeChatBridgeError("受控发送需要账号、会话 ID、完整名称、正文和运行代次",
+                                    code="INVALID_PAYLOAD", status_code=400)
+        if (not isinstance(binding, WeChatWindowBinding) or binding.pid <= 0
+                or binding.hwnd <= 0 or binding.process_created_at <= 0
+                or not callable(verify_before_submit) or not callable(persist_submission)):
+            raise WeChatBridgeError("受控发送窗口绑定或提交回调无效", code="INVALID_PAYLOAD", status_code=400)
+        cancelled = threading.Event()
+        started = time.monotonic()
+        async with self._get_lock():
+            verify_before_submit()
+            if check_before_send is not None:
+                await check_before_send()
+            self.rate_limiter.check_and_record(target_name, content)
+
+            def operation():
+                ui = None
+                def verify():
+                    if cancelled.is_set():
+                        raise WeChatBridgeError("受控发送已取消，未提交",
+                                                code="AUTO_REPLY_CANCELLED", status_code=409)
+                    verify_before_submit()
+                    self.validate_window_binding(binding)
+                try:
+                    import uiautomation as auto
+                    from .wechat_qt_ui import WeChatQtUI
+                    with auto.UIAutomationInitializerInThread():
+                        verify()
+                        if self._is_window_hung(binding.hwnd):
+                            raise WeChatSendTimeoutError("绑定的微信窗口无响应")
+                        self._activate_window(binding.hwnd)
+                        ui = WeChatQtUI(binding.hwnd, auto, self.send_timeout_s)
+                        evidence = ui.send_text(target_name, content, window_api=self.win32gui,
+                                                verify_before_submit=verify, persist_submission=persist_submission)
+                        self.validate_window_binding(binding)
+                        return evidence
+                except Exception as exc:
+                    intended = ui is not None and ui.submission_intended
+                    attempted = ui is not None and ui.submission_attempted
+                    stage = ui.stage if ui is not None else "initialize"
+                    if intended or attempted:
+                        self.rate_limiter.retain_uncertain_message(target_name, content)
+                    else:
+                        self.rate_limiter.rollback_message(target_name, content)
+                    logger.exception("Controlled WeChat text failed: hwnd=%s stage=%s intended=%s attempted=%s",
+                                     binding.hwnd, stage, intended, attempted)
+                    uncertain = intended or attempted
+                    raise ControlledSendError(
+                        "发送结果待核对，请勿重发" if uncertain else str(exc),
+                        code="WECHAT_SEND_UNCONFIRMED" if uncertain else (
+                            exc.code if isinstance(exc, WeChatBridgeError) else "WECHAT_UIA_ERROR"),
+                        status_code=504 if uncertain else (
+                            exc.status_code if isinstance(exc, WeChatBridgeError) else 502),
+                        stage=stage, submission_intended=intended, submission_attempted=attempted,
+                    ) from exc
+
+            evidence = await self._await_operation(operation, _cancel_callback=cancelled.set)
+        return ControlledTextReceipt(account, session_id, target_name, run_id, "client_displayed", evidence,
+                                     round((time.monotonic() - started) * 1000, 2), time.time())
+
     async def send_message(self, session_title: str, content: str) -> SendReceipt:
         """
         Send text message to target WeChat session:
@@ -900,7 +1061,7 @@ class WeChatBridge:
         return path, hashlib.sha256(data).hexdigest()
 
     @staticmethod
-    async def _await_operation(operation, *args, **kwargs):
+    async def _await_operation(operation, *args, _cancel_callback=None, **kwargs):
         task = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
         cancelled = False
         while True:
@@ -911,6 +1072,8 @@ class WeChatBridge:
                 # The worker cannot be cancelled. Keep the caller's send lock
                 # until its UI/snapshot operation has actually finished.
                 cancelled = True
+                if _cancel_callback is not None:
+                    _cancel_callback()
                 if task.cancelled():
                     raise
             except Exception:

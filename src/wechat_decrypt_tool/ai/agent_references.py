@@ -144,32 +144,3 @@ def valid_answer_continuation(prefix, suffix, evidence, references, *, complete=
         if '[[' in rest:
             return False
     return True
-
-
-def normalize_answer_references(text, evidence, references):
-    """仅为已有且校验通过的人物/图片编号补充类型，不猜测姓名或修改消息来源。"""
-    # 有些接口把多个来源写成 [[source:id], [source:id]] 或 [[id], [id]]；
-    # 先整体展开，避免单个标记的严格表达式看不到这种半闭合分组。
-    def grouped(match):
-        ids = re.findall(r'[a-f0-9]{24}', match[0], re.I)
-        return ' '.join('[[' + key.lower() + ']]' for key in ids) if all(key.lower() in evidence for key in ids) else match[0]
-    text = re.sub(
-        r'\[\[\s*(?:source\s*:\s*)?[a-f0-9]{24}\s*'
-        r'(?:\]\s*[,，]?\s*\[\s*(?:source\s*:\s*)?[a-f0-9]{24}\s*)+\]\]',
-        grouped, text, flags=re.I)
-    text = re.sub(r'\[\[\s*(?:source|source_id|message|message_id)\s*:\s*([a-f0-9]{24})\s*\]\]',
-        lambda m: '[[' + m[1].lower() + ']]' if m[1].lower() in evidence else m[0], text, flags=re.I)
-    # 已注册的引用不应被代码样式包住，否则界面不能提供原文定位。
-    text = re.sub(r'`(\[\[(?:(?:person|image):)?[a-f0-9]{24}\]\])`',
-        lambda m: m[1] if valid_answer_references(m[1], evidence, references) else m[0], text, flags=re.I)
-    def replace(match):
-        key = match.group(1).lower()
-        if key in evidence:
-            return match.group(0)
-        ref = references.get(key, {})
-        kind = ref.get('kind')
-        marker = f'[[{kind}:{key}]]'
-        if ref.get('id') == key and kind in ('person', 'image') and valid_answer_references(marker, evidence, references):
-            return marker
-        return match.group(0)
-    return re.sub(r'\[\[([a-f0-9]{24})\]\]', replace, text, flags=re.I)

@@ -714,6 +714,8 @@ class DeepAgentRuntime(ParallelAnalysis):
             thread = self.thread(run['thread_id'], account)
             if thread['origin'] == 'agent':
                 await self.agent_directory(account, run['chat_scope'])
+            # 等待对话锁或目录读取期间，后台执行可能已经完成。
+            run = self.run(id, account)
             if thread['latest_run'] != id or run['status'] == 'completed':
                 raise ValueError('只能恢复最新未完成任务')
             if run['status'] in ('running', 'queued') and (worker := self.workers.get(id)) and not worker.done():
@@ -791,7 +793,7 @@ class DeepAgentRuntime(ParallelAnalysis):
         summarization = SawtoothSummarization(model=model.model_copy(update={'purpose': 'summary'}), backend=backend,
             prepare_request=events.prepare_model_request,
             measure_request=measure, progress=progress,
-            input_capacity=budget, model_window=profile.get('context_window'), summary_capacity=input_limit(profile, output_tokens=model_output_limit(profile, 'summary')),
+            input_capacity=budget, model_window=profile.get('context_window'), summary_capacity=input_limit(profile, output_tokens=model_output_limit(profile)),
             summary_reserve=max(1, int(window * policy.history_summary_ratio)),
             publish=lambda used: self.publish_context(run['id'], used),
             summary_attempts=policy.summary_attempts, overflow_retries=policy.overflow_retries,
@@ -1044,178 +1046,6 @@ class DeepAgentRuntime(ParallelAnalysis):
             model_group.reset(group)
             active_meter.reset(meter)
 
-    async def validate_deep_answer(self, id, version, text):
-        from .agent_citation_check import check_quoted_sources
-        from .agent_model import ActionFormatError
-        from .agent_references import normalize_answer_references
-        from .deep_validation import calendar_issues, file_claim_issues, attribution_issues, evidence_issues, report_display_issues
-        run = self.guard(id)
-        refs = run.get('references', {})
-        scopes = ChatGateway(self, id, version).scopes()
-        def permitted(message):
-            return not scopes or any(ChatGateway.permits(s, message) for s in scopes)
-        originals = {}
-        def load_cited(body):
-            keys = {key.lower() for key in re.findall(r'[a-f0-9]{24}', body, re.I)}
-            originals.update({key: m for key, m in run['evidence'].get_many(keys).items() if permitted(m)})
-            for key in keys:
-                ref = refs.get(key, {})
-                sources = ref.get('sources', []) if ref.get('kind') == 'person' else [ref.get('source')]
-                if any(source in originals for source in sources):
-                    continue
-                for source in sources:
-                    message = run['evidence'].get(source)
-                    if message and permitted(message):
-                        originals[source] = message
-                        break
-        load_cited(text)
-        def quote_candidates(phrase):
-            from .agent_citation_check import compact
-            found = {}
-            # 仅在引文错配时分页回查；不把十万条原文复制进最终答案的活跃上下文。
-            for message in run['evidence'].rows():
-                if permitted(message) and phrase in compact(message.get('text', '')):
-                    found[message['source']] = message
-                    if len(found) >= 8:
-                        break
-            originals.update(found)
-            return found
-        if scopes:
-            names = {u: name for s in scopes for u, name in s.get('names', {}).items()}
-            if not names:
-                directory = await self.tools.conversations(run['account'])
-                self.guard(id)
-                selected = {u for s in scopes for u in s['conversations']}
-                names = {c['username']: c['name'] for c in directory if c['username'] in selected}
-            run['scope_names'] = names
-        with self.store.connection() as db:
-            media_results = [value for r in db.execute("SELECT body FROM agent_piece WHERE run_id=? AND version=? AND kind='deep_media_result'", (id, version))
-                if (value := json.loads(r[0])).get('source') in originals]
-        analyzed_sources = {m['source'] for m in media_results if str(m.get('coverage', '')).startswith('已分析') and m['source'] in originals}
-        quoted_originals = dict(originals)
-        for media in media_results:
-            if media['source'] in analyzed_sources:
-                original = quoted_originals[media['source']]
-                quoted_originals[media['source']] = {**original, 'text': original['text'] + '\n[媒体解析结果]\n' + media['analysis']}
-        text = normalize_answer_references(text, originals, refs)
-        locate_message_quotes = bool(re.search(r'原话|原文|引用|依据', run.get('input_digest', '')))
-        quote_pattern = r'`?[“「]([^”」\n]{6,})[”」]`?|`?"([^"\n]{6,})"`?'
-        if locate_message_quotes:
-            # 人物链接只证明身份。连续原话在当前允许范围唯一命中时，由程序附上消息定位。
-            def locate_quote(match):
-                phrase = match[1] or match[2]
-                candidates = quote_candidates(re.sub(r'\s+', '', phrase))
-                if len(candidates) != 1:
-                    return match[0]
-                key = next(iter(candidates))
-                start = text.rfind('\n\n', 0, match.start()) + 2
-                end = text.find('\n\n', match.end())
-                if '[[' + key + ']]' in text[max(0, start):end if end >= 0 else len(text)]:
-                    return match[0].strip('`')
-                return match[0].strip('`') + ' [[' + key + ']]'
-            text = re.sub(quote_pattern, locate_quote, text)
-            text = re.sub(r'(\[\[[a-f0-9]{24}\]\])\s*\1', r'\1', text)
-        repair_feedback = ''
-        for attempt in range(3):
-            self.guard(id)
-            load_cited(text)
-            if locate_message_quotes:
-                # 局部改写后仍重新定位唯一原话，避免正文修好了却丢掉消息引用。
-                text = re.sub(quote_pattern, locate_quote, text)
-                text = re.sub(r'(\[\[[a-f0-9]{24}\]\])\s*\1', r'\1', text)
-            from .deep_validation import normalize_program_facts
-            text = normalize_program_facts(text, run, originals)
-            quoted_originals.update({key: value for key, value in originals.items() if key not in quoted_originals})
-            self.update(id, answer=text, answer_draft_saved=True)
-            issues = calendar_issues(text, run) + file_claim_issues(text, TaskBackend(self, id, version)) + attribution_issues(text, originals, analyzed_sources)
-            from .deep_validation import coverage_claim_issues, temporal_issues, reported_scope_issues
-            issues.extend(coverage_claim_issues(text, run))
-            issues.extend(temporal_issues(text, originals, run['timezone_offset']))
-            issues.extend(reported_scope_issues(text, run, originals))
-            if not valid_answer_references(text, originals, refs):
-                issues.append('正文包含未知或类型不正确的引用编号。')
-            try:
-                check_quoted_sources(text, quoted_originals, refs, candidate_lookup=quote_candidates)
-            except ActionFormatError as exc:
-                issues.append(exc.correction)
-            full_report = any(s['complete_required'] and s['mode'] != 'statistics' for s in scopes)
-            # 普通概览同样可能误判发言归属和结果状态，不能只核验时间类问题。
-            grounded_answer = bool(originals) and run.get('intent', {}).get('mode') != 'statistics'
-            # 已知引用、日期等确定错误先修复，避免整份报告在错误修复前后各核查一次。
-            if not issues and valid_answer_references(text, originals, refs) and not run.get('parent_run_id') and (full_report or grounded_answer):
-                issues.extend(report_display_issues(text, run['input_digest']))
-                issues.extend(await evidence_issues(self, run, version, text, originals, media_results))
-                if full_report:
-                    from .deep_omissions import omission_issues
-                    issues.extend(await omission_issues(self, run, version, text))
-                load_cited('\n'.join(issues))
-            if not issues:
-                return text
-            self.update(id, answer=text)
-            if attempt == 2:
-                raise ProviderFailure('回答来源未通过校验，已保留草稿；两次局部修复均未通过。')
-            # 只允许精确替换，不要求模型重新生成整份答案。
-            model = DeepChatModel(service=self, run_id=id, input_version=version, purpose='citation_repair')
-            # 优先提供错误中指定的候选原文及当前引用，不能只截取最早的三十条资料。
-            source_ids = list(dict.fromkeys(re.findall(r'[a-f0-9]{24}', '\n'.join(issues))
-                + re.findall(r'\[\[(?:source:)?([a-f0-9]{24})\]\]', text)))
-            sources = [originals[key] for key in source_ids if key in originals]
-            if not sources:
-                sources = list(originals.values())[:30]
-            blocks = text.split('\n\n')
-            issue_text = '\n'.join(issues)
-            eligible = {i for i, b in enumerate(blocks) if b.strip() and (b in issue_text
-                or any(len(line) >= 8 and line in issue_text for line in b.splitlines())
-                or any(key in issue_text for key in re.findall(r'[a-f0-9]{24}', b))
-                or calendar_issues(b, run))}
-            if not eligible:
-                eligible = {i for i, b in enumerate(blocks) if '[[' in b} or {i for i, b in enumerate(blocks) if b.strip() and not b.startswith('#') and b.strip() != '---'}
-            request = HumanMessage(content='只输出 JSON 数组 [{"id":0,"text":"修复后这个段落的完整内容"}]，id 是下面 blocks 的整数 id，每个段落最多出现一次。短小修改也可使用 {"old":"原文中唯一片段","new":"替换片段"}，不必重复整段。仅修复指出的错误及其紧邻结论；相关原文推翻结论时一并改正，不能保留与证据冲突的否定。每段 section_heading 限定群或日期，不能把其他群的讨论挪进本群标题下；程序证实该群范围为零条时应明确没有记录。可以把缺乏证据的推断改为原文自述或明确无法确定，不删除已核实事实或重写其余段落。正文面向用户，用真实群名和当地日期，不输出元数据字段或 Unix 秒来代替结论。\n'
-                + json.dumps({'issues': issues, 'previous_patch_error': repair_feedback, 'blocks': [{'id': i, 'text': b,
-                    'section_heading': next((h for h in reversed(blocks[:i]) if h.startswith('#')), '')} for i, b in enumerate(blocks) if i in eligible],
-                    'sources': [{**m, 'conversation_name': run.get('scope_names', {}).get(m.get('username')),
-                        'is_self': m['sender_id'] == run['account'] if m.get('sender_id') and run.get('account') else None,
-                        'sent_at': datetime.fromtimestamp(m['time'], timezone(timedelta(seconds=run['timezone_offset']))).isoformat()} for m in sources[:80]],
-                    'program_coverage': run.get('analysis', {}), 'scope_names': run.get('scope_names', {}),
-                    'references': [{k: v for k, v in r.items() if k in ('id', 'kind', 'name', 'source')} for r in refs.values()]}, ensure_ascii=False))
-            response = await model.ainvoke([request], config={'callbacks': [], 'tags': ['internal']})
-            self.workspace.put(id, version, 'repair:' + uuid.uuid4().hex, 'deep_answer_repair',
-                {'response': str(response.content), 'previous_patch_error': repair_feedback, 'issues': issues})
-            try:
-                raw = re.sub(r'^```(?:json)?\s*|\s*```$', '', str(response.content).strip())
-                patches = json.loads(raw)
-                if not isinstance(patches, list) or not 1 <= len(patches) <= 40:
-                    repair_feedback = '修复必须是包含一至四十项的 JSON 数组。'
-                    continue
-                candidate = text
-                changed_blocks = set()
-                for patch in patches:
-                    if isinstance(patch, dict) and 'id' in patch and 'text' in patch:
-                        patch = {'block': patch['id'], 'new': patch['text']}
-                    if isinstance(patch, dict) and 'block' in patch:
-                        index = patch['block']
-                        if type(index) is not int or index not in eligible or index in changed_blocks or not isinstance(patch.get('new'), str):
-                            raise ValueError('段落编号无效或重复')
-                        old = blocks[index]
-                        if old.startswith('#') and '\n' not in old and '\n' in patch['new']:
-                            raise ValueError('标题修复只能替换该标题，不得重复追加正文')
-                        if any(j != index and len(other) >= 40 and other in patch['new'] for j, other in enumerate(blocks)):
-                            raise ValueError('修复段落包含其他已有段落，请勿重复输出')
-                        if not old or candidate.count(old) != 1:
-                            raise ValueError('重复段落请改用唯一 old 片段')
-                        candidate = candidate.replace(old, patch['new'], 1)
-                        changed_blocks.add(index)
-                        continue
-                    if not isinstance(patch, dict) or not isinstance(patch.get('old'), str) or not patch['old'] or candidate.count(patch['old']) != 1 or not isinstance(patch.get('new'), str):
-                        raise ValueError('修复片段不唯一')
-                    candidate = candidate.replace(patch['old'], patch['new'], 1)
-                text = candidate
-                text = normalize_answer_references(text, originals, refs)
-            except (ValueError, TypeError) as exc:
-                repair_feedback = str(exc)
-                continue
-        raise ProviderFailure('回答来源尚未通过校验。')
-
     async def deep_child(self, inputs):
         binding = CHILD_SCOPE.get()
         if not binding:
@@ -1359,22 +1189,23 @@ class DeepAgentRuntime(ParallelAnalysis):
                     self.update(run['id'], status='interrupted', restart_required=True, finished_at=time.time())
 
     async def delete_thread(self, id, account):
-        self.thread(id, account)
-        all_runs = self.store.list('agent_run', account)
-        roots = {r['id'] for r in all_runs if r['thread_id'] == id}
-        runs = [r for r in all_runs if r['id'] in roots or r.get('parent_run_id') in roots]
-        for run in runs:
-            await self.stop_run(run['id'], account)
-            db_path = self.store.root / ('deepagents_checkpoints.sqlite3' if run.get('engine_version') == 3 else 'agent_checkpoints.sqlite3')
-            if db_path.exists():
-                async with AsyncSqliteSaver.from_conn_string(str(db_path)) as saver:
-                    await saver.setup()
-                    for version in range(1, run['version'] + 1):
-                        await saver.adelete_thread(self.checkpoint_id(run, version) if run.get('engine_version') == 3 else run['id'])
-            self.store.delete('agent_run', run['id'])
-            if run.get('parent_run_id'):
-                self.store.delete('agent_thread', run['thread_id'])
-        self.store.delete('agent_thread', id)
-        self.__dict__.get('_context_meters', {}).pop((account, id), None)
-        with self.store.connection() as db:
-            db.execute("DELETE FROM events WHERE kind='agent' AND json_extract(body,'$.thread_id')=?", (id,))
+        async with self.locks.setdefault(id, asyncio.Lock()):
+            self.thread(id, account)
+            all_runs = self.store.list('agent_run', account)
+            roots = {r['id'] for r in all_runs if r['thread_id'] == id}
+            runs = [r for r in all_runs if r['id'] in roots or r.get('parent_run_id') in roots]
+            for run in runs:
+                await self.stop_run(run['id'], account)
+                db_path = self.store.root / ('deepagents_checkpoints.sqlite3' if run.get('engine_version') == 3 else 'agent_checkpoints.sqlite3')
+                if db_path.exists():
+                    async with AsyncSqliteSaver.from_conn_string(str(db_path)) as saver:
+                        await saver.setup()
+                        for version in range(1, run['version'] + 1):
+                            await saver.adelete_thread(self.checkpoint_id(run, version) if run.get('engine_version') == 3 else run['id'])
+                self.store.delete('agent_run', run['id'])
+                if run.get('parent_run_id'):
+                    self.store.delete('agent_thread', run['thread_id'])
+            self.store.delete('agent_thread', id)
+            self.__dict__.get('_context_meters', {}).pop((account, id), None)
+            with self.store.connection() as db:
+                db.execute("DELETE FROM events WHERE kind='agent' AND json_extract(body,'$.thread_id')=?", (id,))

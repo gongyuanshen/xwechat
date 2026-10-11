@@ -184,7 +184,7 @@ html[data-theme="dark"] .agent-selection-popover { --strength-green: #3eb575; }
 .single-strength { display: block; margin: 4px auto 0; border: 0; background: transparent; color: var(--strength-green); }
 .model-list { max-height: min(380px, 55vh); overflow-y: auto; margin: -4px -6px; scrollbar-width: thin; }
 .model-list-heading { display: grid; grid-template-columns: 54px 1fr 54px; align-items: center; gap: 4px; padding: 2px 2px 8px; border-bottom: 1px solid var(--app-border, #eee); }
-.model-list-heading>button { border: 0; height: 28px; border-radius: 6px; color: var(--app-text-secondary, #777); background: transparent; }
+.model-list-heading>button { border: 0; height: 28px; padding: 0; gap: 2px; white-space: nowrap; border-radius: 6px; color: var(--app-text-secondary, #777); background: transparent; }
 .model-list-heading>strong { font-weight: 500; text-align: center; }
 .model-list section { padding-top: 6px; }
 .model-list section>header { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--app-text-secondary, #888); padding: 3px 8px; font-size: 11px; }

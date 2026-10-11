@@ -248,11 +248,6 @@ def _weflow_wxisaac64_script_path() -> str:
     if bundled.exists() and bundled.is_file():
         return str(bundled)
 
-    # Development fallback: allow the repo-level helper to proxy into the vendored assets.
-    repo_root = _PACKAGE_DIR.parents[1]
-    legacy = repo_root / "tools" / "weflow_wasm_keystream.js"
-    if legacy.exists() and legacy.is_file():
-        return str(legacy)
     return ""
 
 

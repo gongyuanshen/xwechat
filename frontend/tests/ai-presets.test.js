@@ -184,7 +184,7 @@ describe('AI 服务预设', () => {
 it('模块导航统一显示用途，并支持键盘切换', async()=>{
   wrapper=mount(AiSettings,{attachTo:document.body,global:{stubs:{LocalSearchSettings:true}}})
   await flushPromises()
-  expect(wrapper.findAll('[role=tab]').map(tab=>tab.text())).toEqual(['模型服务连接与模型配置','本地检索按意思查找聊天','用量记录调用明细与消耗'])
+  expect(wrapper.findAll('[role=tab]').map(tab=>tab.text())).toEqual(['模型服务连接与模型配置','本地检索按意思查找聊天','自动回复指定聊天自动发送','用量记录调用明细与消耗'])
   await wrapper.find('#ais-config-tab').trigger('keydown',{key:'ArrowRight'});await flushPromises()
   expect(wrapper.find('#ais-local-tab').attributes('aria-selected')).toBe('true')
   expect(document.activeElement.id).toBe('ais-local-tab')

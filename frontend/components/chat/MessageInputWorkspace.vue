@@ -105,6 +105,13 @@
           @configure="state.toggleInsightsPanel(true)"
         />
 
+        <AutoReplyControl
+          :account="account"
+          :session-id="contactUsername"
+          :target-name="contactDisplayName"
+          :group="contactUsername.endsWith('@chatroom')"
+        />
+
         <button
           type="button"
           class="chat-input-btn-clear inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
@@ -185,6 +192,7 @@ import { computed, ref, unref, watch, onDeactivated, onMounted, onUnmounted, nex
 import { useApi as defaultUseApi } from '~/composables/useApi'
 import { formatFileSize } from '~/lib/chat/formatters'
 import MessageRecognitionControl from '~/components/chat/MessageRecognitionControl.vue'
+import AutoReplyControl from '~/components/chat/AutoReplyControl.vue'
 
 const props = defineProps({
   state: {
