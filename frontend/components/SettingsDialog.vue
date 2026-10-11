@@ -261,6 +261,10 @@
             <AiSettings v-if="open" />
           </section>
 
+          <section ref="accelerationSectionRef">
+            <LocalAccelerationSettings v-if="open" :active="activeSection === 'local-acceleration'" />
+          </section>
+
           <section ref="voiceSectionRef">
             <div class="mb-2.5 text-[12px] font-bold tracking-widest text-[var(--app-text-muted)]">语音转文字</div>
             <div class="divide-y divide-[var(--app-border-soft)] overflow-hidden rounded-[10px] border border-[var(--app-border)] bg-[var(--app-surface-bg)]">
@@ -690,6 +694,7 @@ const settingNavItems = [
   { key: 'desktop', label: '桌面行为', hint: '启动 / 关闭 / 端口' },
   { key: 'storage', label: '磁盘占用', hint: '账号文件 / 索引清理' },
   { key: 'ai', label: 'AI 服务', hint: '模型 / 密钥 / 默认能力' },
+  { key: 'local-acceleration', label: '本地加速', hint: '显卡 / 组件 / 模型验证' },
   { key: 'voice', label: '语音转文字', hint: 'CPU / NVIDIA GPU' },
   { key: 'mcp', label: 'MCP 接入', hint: '局域网 / Skill / 工具' },
   { key: 'keys', label: '数据库与密钥', hint: '密钥查看 / 复制' },
@@ -704,6 +709,7 @@ const storageSectionRef = ref(null)
 const desktopLogFileRef = ref(null)
 const voiceSectionRef = ref(null)
 const aiSectionRef = ref(null)
+const accelerationSectionRef = ref(null)
 const mcpSectionRef = ref(null)
 const keysSectionRef = ref(null)
 const startupSectionRef = ref(null)
@@ -889,8 +895,7 @@ const voiceCudaDeviceLabels = computed(() => {
 const voiceActiveDeviceLabel = computed(() => {
   if (voiceActiveDevice.value === 'cuda') return voiceCudaDeviceLabels.value.join('、') || 'NVIDIA GPU'
   if (voiceActiveDevice.value === 'cpu') return 'CPU'
-  if (voiceDevicePreference.value === 'cuda') return voiceCudaDeviceLabels.value.join('、') || 'NVIDIA GPU'
-  return 'CPU'
+  return '尚未运行'
 })
 
 const mcpLanAccessEnabled = ref(false)
@@ -1006,6 +1011,7 @@ const sectionElements = computed(() => [
   { key: 'desktop', el: desktopSectionRef.value },
   { key: 'storage', el: storageSectionRef.value },
   { key: 'ai', el: aiSectionRef.value },
+  { key: 'local-acceleration', el: accelerationSectionRef.value },
   { key: 'voice', el: voiceSectionRef.value },
   { key: 'mcp', el: mcpSectionRef.value },
   { key: 'keys', el: keysSectionRef.value },
@@ -1028,6 +1034,11 @@ const scrollToSection = (key) => {
 
 const scrollToFocusTarget = async () => {
   const focusTarget = String(props.focusTarget || '').trim()
+  if (focusTarget === 'local-acceleration') {
+    await nextTick()
+    scrollToSection('local-acceleration')
+    return
+  }
   if (focusTarget === 'storage') {
     await nextTick()
     scrollToSection('storage')

@@ -956,6 +956,37 @@ def _extract_xml_attr(xml_text: str, attr: str) -> str:
     return html.unescape(m.group(1) or "").strip() if m else ""
 
 
+def _extract_image_md5_candidates(xml_text: str) -> list[str]:
+    """与附件导出一致，按原图到缩略图顺序保留有效的规范 MD5 候选。"""
+    candidates = []
+    for key in ('md5', 'hdmd5', 'hevc_md5', 'hevc_mid_md5', 'cdnbigimgmd5', 'cdnmidimgmd5',
+                'cdnthumbmd5', 'cdnthumd5', 'imgmd5', 'filemd5'):
+        for value in (_extract_xml_attr(xml_text, key), _extract_xml_tag_text(xml_text, key)):
+            md5 = value.lower()
+            if len(md5) == 32 and all(char in '0123456789abcdef' for char in md5) and md5 not in candidates:
+                candidates.append(md5)
+    return candidates
+
+
+def _extract_image_cdn_refs(xml_text: str) -> tuple[str, str, list[str]]:
+    """图片 CDN 字段可同时提供显示 URL 和本地文件 ID，保留两者及有序候选。"""
+    url, file_ids, seen = '', [], set()
+    for key in ('cdnthumburl', 'cdnthumurl', 'cdnmidimgurl', 'cdnbigimgurl'):
+        for value in (_extract_xml_attr(xml_text, key), _extract_xml_tag_text(xml_text, key)):
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            if value.lower().startswith(('http://', 'https://')):
+                if not url:
+                    url = value
+            elif value.startswith('//'):
+                if not url:
+                    url = 'https:' + value
+            else:
+                file_ids.append(value)
+    return url, file_ids[0] if file_ids else '', file_ids
+
+
 def _extract_xml_tag_or_attr(xml_text: str, name: str) -> str:
     v = _extract_xml_tag_text(xml_text, name)
     if v:

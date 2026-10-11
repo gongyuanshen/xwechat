@@ -10,12 +10,19 @@ import json
 import time
 import zipfile
 import re
+import math
+import threading
 from xml.etree import ElementTree
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image
 from .agent_budget import pieces, size
+
+
+# PDFium forbids simultaneous calls from different threads, even for separate
+# documents. Keep the native lock out of generator yields and model inference.
+_PDFIUM_LOCK = threading.Lock()
 
 
 def image_url(data):
@@ -28,7 +35,7 @@ def image_url(data):
     return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
 
 
-def iter_document(data: bytes, suffix: str, *, include_images=True, scan_only=False):
+def iter_document(data: bytes, suffix: str, *, include_images=True, scan_only=False, raw_images=False):
     """返回带位置的片段；不运行宏，不提取压缩包中的任意文件到磁盘。"""
     stream = io.BytesIO(data)
     if suffix in {".txt", ".md", ".csv"}:
@@ -54,26 +61,35 @@ def iter_document(data: bytes, suffix: str, *, include_images=True, scan_only=Fa
                     if not include_images:
                         yield {"label": f"第 {i + 1} 页扫描图", "skipped_image": True}
                         continue
-                    document = document or pdfium.PdfDocument(data)
-                    pdf_page = document[i]
-                    bitmap = pdf_page.render(scale=1.5)
-                    try:
-                        buf = io.BytesIO()
-                        bitmap.to_pil().save(buf, "PNG")
-                        yield {"label": f"第 {i + 1} 页扫描图", "image": image_url(buf.getvalue())}
-                    finally:
-                        bitmap.close()
-                        pdf_page.close()
+                    with _PDFIUM_LOCK:
+                        document = document or pdfium.PdfDocument(data)
+                        pdf_page = document[i]
+                        try:
+                            scale = 2 if raw_images else 1.5
+                            width, height = pdf_page.get_size()
+                            if math.ceil(width * scale) * math.ceil(height * scale) > Image.MAX_IMAGE_PIXELS:
+                                raise ValueError(f'第 {i + 1} 页渲染后超过本地图像像素上限，请先缩小或分割该页面。')
+                            bitmap = pdf_page.render(scale=scale)
+                            try:
+                                buf = io.BytesIO()
+                                bitmap.to_pil().save(buf, "PNG")
+                                rendered = buf.getvalue()
+                            finally:
+                                bitmap.close()
+                        finally:
+                            pdf_page.close()
+                    yield {"label": f"第 {i + 1} 页扫描图", "image": rendered if raw_images else image_url(rendered)}
                 else:
                     if not include_images or scan_only:
                         for name in page.images.keys():
                             yield {"label": f"第 {i + 1} 页图片 {name}", "skipped_image": True}
                         continue
                     for n, img in enumerate(page.images):
-                        yield {"label": f"第 {i + 1} 页图片 {n + 1}", "image": image_url(img.data)}
+                        yield {"label": f"第 {i + 1} 页图片 {n + 1}", "image": img.data if raw_images else image_url(img.data)}
         finally:
             if document is not None:
-                document.close()
+                with _PDFIUM_LOCK:
+                    document.close()
         return
     if suffix not in {".docx", ".xlsx", ".pptx"}:
         raise ValueError("暂不支持此附件格式")
@@ -130,13 +146,13 @@ def iter_document(data: bytes, suffix: str, *, include_images=True, scan_only=Fa
                 if shape.has_table:
                     yield {"label": f"幻灯片 {i + 1} 表格", "text": "\n".join(" | ".join(c.text for c in r.cells) for r in shape.table.rows)}
                 if shape.shape_type == 13:
-                    yield ({"label": f"幻灯片 {i + 1} 图片", "image": image_url(shape.image.blob)} if include_images
+                    yield ({"label": f"幻灯片 {i + 1} 图片", "image": shape.image.blob if raw_images else image_url(shape.image.blob)} if include_images
                            else {"label": f"幻灯片 {i + 1} 图片", "skipped_image": True})
     if suffix != ".pptx":
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             for name in archive.namelist():
                 if "/media/" in name and Path(name).suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
-                    yield ({"label": f"嵌入图片 {Path(name).name}", "image": image_url(archive.read(name))} if include_images
+                    yield ({"label": f"嵌入图片 {Path(name).name}", "image": archive.read(name) if raw_images else image_url(archive.read(name))} if include_images
                            else {"label": f"嵌入图片 {Path(name).name}", "skipped_image": True})
     return
 

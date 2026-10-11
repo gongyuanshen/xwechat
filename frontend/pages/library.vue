@@ -2,7 +2,7 @@
   <main class="library-page theme-scope">
     <header>
       <h1>本地资料夹</h1>
-      <span>聊天原文、附件与 AI 报告的本地副本</span>
+      <span>聊天原文、附件、识别/提取文字与 AI 报告的本地副本</span>
     </header>
     <p v-if="accounts.error || error" class="library-error" role="alert">
       {{ accounts.error || error }} <button @click="load">重试加载</button>
@@ -86,6 +86,12 @@
           {{ selected.verified ? "已人工核验" : "待人工核验" }} · 更新于
           {{ formatDate(selected.updated_at) }}
         </p>
+        <div v-if="selected.kind === 'extracted_text'" class="extraction-summary metadata">
+          <p>{{ { local_ocr: '本地 OCR 识别文字', document_text: '本地文档提取文字' }[selected.extraction.extraction_method] }}<span v-if="selected.extraction.complete"> · 提取流程已完成</span></p>
+          <p v-if="selected.extraction.extraction_method === 'local_ocr'">OCR 引擎：{{ selected.extraction.ocr_engine }} · 识别 {{ selected.extraction.ocr_units }} 个图片部件</p>
+          <p>提取于 {{ formatDate(selected.extraction.updated) }} · 正文只读，可编辑备注与标签。</p>
+          <p class="extraction-source" :class="{ 'privacy-blur': privacyMode }">原消息：{{ selected.source.text }}</p>
+        </div>
         <form @submit.prevent="save">
           <fieldset :disabled="busy">
             <label
@@ -263,7 +269,7 @@ const folders = ref([]),
   editingReport = ref(false);
 const showAttachmentPreview = ref(false), attachmentPreviewError = ref('');
 watch(selected, () => { showAttachmentPreview.value = false; attachmentPreviewError.value = ''; });
-const itemKind = (item) => ({ report: 'AI 报告', message: '聊天原文', attachment: '附件副本' })[item.kind];
+const itemKind = (item) => ({ report: 'AI 报告', message: '聊天原文', attachment: '附件副本', extracted_text: '识别/提取文字' })[item.kind];
 const navigation = useState("ai-navigation-target", () => null);
 let generation = 0;
 let loadRequest = 0;
@@ -518,6 +524,7 @@ onMounted(() => accounts.ensureLoaded());
 .saved-attachment { margin: 16px 0; }
 .saved-attachment p { margin: 8px 0; }
 .saved-attachment img, .saved-attachment video { display: block; max-width: 100%; max-height: 400px; margin: 12px 0; }
+.extraction-summary { margin: 12px 0; line-height: 1.7; overflow-wrap: anywhere; }
 .library-page {
   height: 100vh;
   display: flex;

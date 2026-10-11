@@ -17,7 +17,7 @@ body:
     attributes:
       label: 应用版本或源码提交 Hash
       description: 安装版或免安装版请填写应用版本；源码运行请填写 `git rev-parse HEAD` 输出的完整 40 位 Hash。
-      placeholder: v1.2.0 / 完整的 40 位源码提交 Hash
+      placeholder: v1.3.0 / 完整的 40 位源码提交 Hash
     validations:
       required: true
 

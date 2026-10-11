@@ -44,6 +44,8 @@ from .chat_helpers import (
     _extract_voice_transcript_from_packed_info,
     _extract_sender_from_group_xml,
     _extract_xml_attr,
+    _extract_image_cdn_refs,
+    _extract_image_md5_candidates,
     _extract_xml_tag_or_attr,
     _extract_xml_tag_text,
     _format_session_time,
@@ -4215,25 +4217,7 @@ def _parse_message_for_export(
         location_label = str(parsed.get("locationLabel") or "")
     elif local_type == 3:
         render_type = "image"
-        def add_md5(v: Any) -> None:
-            s = str(v or "").strip().lower()
-            if _is_md5(s) and s not in image_md5_candidates:
-                image_md5_candidates.append(s)
-
-        for k in [
-            "md5",
-            "hdmd5",
-            "hevc_md5",
-            "hevc_mid_md5",
-            "cdnbigimgmd5",
-            "cdnmidimgmd5",
-            "cdnthumbmd5",
-            "cdnthumd5",
-            "imgmd5",
-            "filemd5",
-        ]:
-            add_md5(_extract_xml_attr(raw_text, k))
-            add_md5(_extract_xml_tag_text(raw_text, k))
+        image_md5_candidates = _extract_image_md5_candidates(raw_text)
 
         # Prefer message_resource.db md5 for local files: XML md5 frequently differs from the on-disk *.dat basename
         # (especially for *_t.dat thumbnails), causing offline media materialization to miss.
@@ -4271,31 +4255,7 @@ def _parse_message_for_export(
 
         image_md5 = image_md5_candidates[0] if image_md5_candidates else ""
 
-        url_or_id_candidates: list[str] = []
-
-        def add_url_or_id(v: Any) -> None:
-            s = str(v or "").strip()
-            if s and s not in url_or_id_candidates:
-                url_or_id_candidates.append(s)
-
-        for k in ["cdnthumburl", "cdnthumurl", "cdnmidimgurl", "cdnbigimgurl"]:
-            add_url_or_id(_extract_xml_attr(raw_text, k))
-            add_url_or_id(_extract_xml_tag_text(raw_text, k))
-
-        for v in url_or_id_candidates:
-            low = str(v or "").strip().lower()
-            if low.startswith(("http://", "https://")):
-                if not image_url:
-                    image_url = str(v).strip()
-                continue
-            if str(v).startswith("//"):
-                if not image_url:
-                    image_url = "https:" + str(v).strip()
-                continue
-            if v and v not in image_file_id_candidates:
-                image_file_id_candidates.append(v)
-
-        image_file_id = image_file_id_candidates[0] if image_file_id_candidates else ""
+        image_url, image_file_id, image_file_id_candidates = _extract_image_cdn_refs(raw_text)
         content_text = "[图片]"
     elif local_type == 34:
         render_type = "voice"

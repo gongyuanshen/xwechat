@@ -38,6 +38,8 @@ from ..chat_helpers import (
     _extract_voice_transcript_from_packed_info,
     _extract_sender_from_group_xml,
     _extract_xml_attr,
+    _extract_image_cdn_refs,
+    _extract_image_md5_candidates,
     _extract_xml_tag_or_attr,
     _extract_xml_tag_text,
     _format_session_time,
@@ -1056,23 +1058,8 @@ def _append_full_messages_from_rows(
             image_group_type = str(image_group_info.get("type") or "")
             image_group_id = str(image_group_info.get("id") or "")
             image_group_count = int(image_group_info.get("count") or 0)
-            # 先尝试从 XML 中提取 md5（不同版本字段可能不同）
-            image_md5 = _extract_xml_attr(raw_text, "md5") or _extract_xml_tag_text(raw_text, "md5")
-            if not image_md5:
-                for k in [
-                    "cdnthumbmd5",
-                    "cdnthumd5",
-                    "cdnmidimgmd5",
-                    "cdnbigimgmd5",
-                    "hdmd5",
-                    "hevc_mid_md5",
-                    "hevc_md5",
-                    "imgmd5",
-                    "filemd5",
-                ]:
-                    image_md5 = _extract_xml_attr(raw_text, k) or _extract_xml_tag_text(raw_text, k)
-                    if image_md5:
-                        break
+            xml_md5s = _extract_image_md5_candidates(raw_text)
+            image_md5 = xml_md5s[0] if xml_md5s else ''
 
             # Prefer message_resource.db md5 for local files: XML md5 frequently differs from the on-disk *.dat basename
             # (especially for *_t.dat thumbnails), causing the media endpoint to 404.
@@ -1103,23 +1090,7 @@ def _append_full_messages_from_rows(
             if packed_md5:
                 image_md5 = packed_md5
 
-            # Extract CDN URL (some versions store a non-HTTP "file id" string here)
-            _cdn_url_or_id = (
-                _extract_xml_attr(raw_text, "cdnthumburl")
-                or _extract_xml_attr(raw_text, "cdnthumurl")
-                or _extract_xml_attr(raw_text, "cdnmidimgurl")
-                or _extract_xml_attr(raw_text, "cdnbigimgurl")
-                or _extract_xml_tag_text(raw_text, "cdnthumburl")
-                or _extract_xml_tag_text(raw_text, "cdnthumurl")
-                or _extract_xml_tag_text(raw_text, "cdnmidimgurl")
-                or _extract_xml_tag_text(raw_text, "cdnbigimgurl")
-            )
-            _cdn_url_or_id = _normalize_xml_url(_cdn_url_or_id)
-            image_url = (
-                _cdn_url_or_id if str(_cdn_url_or_id).lower().startswith(("http://", "https://")) else ""
-            )
-            if (not image_url) and _cdn_url_or_id:
-                image_file_id = _cdn_url_or_id
+            image_url, image_file_id, _ = _extract_image_cdn_refs(raw_text)
 
             content_text = "[图片]"
         elif local_type == 34:
@@ -2954,23 +2925,8 @@ def _collect_chat_messages(
                     image_group_type = str(image_group_info.get("type") or "")
                     image_group_id = str(image_group_info.get("id") or "")
                     image_group_count = int(image_group_info.get("count") or 0)
-                    # 先尝试从 XML 中提取 md5（不同版本字段可能不同）
-                    image_md5 = _extract_xml_attr(raw_text, "md5") or _extract_xml_tag_text(raw_text, "md5")
-                    if not image_md5:
-                        for k in [
-                            "cdnthumbmd5",
-                            "cdnthumd5",
-                            "cdnmidimgmd5",
-                            "cdnbigimgmd5",
-                            "hdmd5",
-                            "hevc_mid_md5",
-                            "hevc_md5",
-                            "imgmd5",
-                            "filemd5",
-                        ]:
-                            image_md5 = _extract_xml_attr(raw_text, k) or _extract_xml_tag_text(raw_text, k)
-                            if image_md5:
-                                break
+                    xml_md5s = _extract_image_md5_candidates(raw_text)
+                    image_md5 = xml_md5s[0] if xml_md5s else ''
 
                     # Prefer message_resource.db md5 for local files: XML md5 frequently differs from the on-disk *.dat basename
                     # (especially for *_t.dat thumbnails), causing the media endpoint to 404.
@@ -2994,21 +2950,7 @@ def _collect_chat_messages(
                     if packed_md5:
                         image_md5 = packed_md5
 
-                    # Extract CDN URL (some versions store a non-HTTP "file id" string here)
-                    _cdn_url_or_id = (
-                        _extract_xml_attr(raw_text, "cdnthumburl")
-                        or _extract_xml_attr(raw_text, "cdnthumurl")
-                        or _extract_xml_attr(raw_text, "cdnmidimgurl")
-                        or _extract_xml_attr(raw_text, "cdnbigimgurl")
-                        or _extract_xml_tag_text(raw_text, "cdnthumburl")
-                        or _extract_xml_tag_text(raw_text, "cdnthumurl")
-                        or _extract_xml_tag_text(raw_text, "cdnmidimgurl")
-                        or _extract_xml_tag_text(raw_text, "cdnbigimgurl")
-                    )
-                    _cdn_url_or_id = str(_cdn_url_or_id or "").strip()
-                    image_url = _cdn_url_or_id if _cdn_url_or_id.startswith(("http://", "https://")) else ""
-                    if (not image_url) and _cdn_url_or_id:
-                        image_file_id = _cdn_url_or_id
+                    image_url, image_file_id, _ = _extract_image_cdn_refs(raw_text)
                     content_text = "[图片]"
                 elif local_type == 34:
                     render_type = "voice"
@@ -4018,23 +3960,8 @@ def list_chat_messages(
                     quote_voice_length = str(parsed.get("quoteVoiceLength") or "")
                 elif local_type == 3:
                     render_type = "image"
-                    # 先尝试从 XML 中提取 md5（不同版本字段可能不同）
-                    image_md5 = _extract_xml_attr(raw_text, "md5") or _extract_xml_tag_text(raw_text, "md5")
-                    if not image_md5:
-                        for k in [
-                            "cdnthumbmd5",
-                            "cdnthumd5",
-                            "cdnmidimgmd5",
-                            "cdnbigimgmd5",
-                            "hdmd5",
-                            "hevc_mid_md5",
-                            "hevc_md5",
-                            "imgmd5",
-                            "filemd5",
-                        ]:
-                            image_md5 = _extract_xml_attr(raw_text, k) or _extract_xml_tag_text(raw_text, k)
-                            if image_md5:
-                                break
+                    xml_md5s = _extract_image_md5_candidates(raw_text)
+                    image_md5 = xml_md5s[0] if xml_md5s else ''
 
                     # Prefer message_resource.db md5 for local files: XML md5 frequently differs from the on-disk *.dat basename
                     # (especially for *_t.dat thumbnails), causing the media endpoint to 404.
@@ -4054,21 +3981,7 @@ def list_chat_messages(
                         if len(resource_md5) == 32 and all(c in "0123456789abcdef" for c in resource_md5):
                             image_md5 = resource_md5
 
-                    # Extract CDN URL (some versions store a non-HTTP "file id" string here)
-                    _cdn_url_or_id = (
-                        _extract_xml_attr(raw_text, "cdnthumburl")
-                        or _extract_xml_attr(raw_text, "cdnthumurl")
-                        or _extract_xml_attr(raw_text, "cdnmidimgurl")
-                        or _extract_xml_attr(raw_text, "cdnbigimgurl")
-                        or _extract_xml_tag_text(raw_text, "cdnthumburl")
-                        or _extract_xml_tag_text(raw_text, "cdnthumurl")
-                        or _extract_xml_tag_text(raw_text, "cdnmidimgurl")
-                        or _extract_xml_tag_text(raw_text, "cdnbigimgurl")
-                    )
-                    _cdn_url_or_id = str(_cdn_url_or_id or "").strip()
-                    image_url = _cdn_url_or_id if _cdn_url_or_id.startswith(("http://", "https://")) else ""
-                    if (not image_url) and _cdn_url_or_id:
-                        image_file_id = _cdn_url_or_id
+                    image_url, image_file_id, _ = _extract_image_cdn_refs(raw_text)
                     content_text = "[图片]"
                 elif local_type == 34:
                     render_type = "voice"

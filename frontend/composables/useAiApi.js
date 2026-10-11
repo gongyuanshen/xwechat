@@ -177,5 +177,8 @@ export const useAiApi = () => {
   const localSearchEvents = (account, onEvent, after = 0, options) =>
     stream(`/local-search/events?after=${encodeURIComponent(after)}${account ? `&account=${encodeURIComponent(account)}` : ''}`, 'search', onEvent, undefined, undefined, options)
 
-  return { request, events, agentEvents, localSearchEvents, diagnostic: (event, metadata = {}) => diagnostics.record(event, { origin: 'frontend', ...metadata }) }
+  const localAccelerationEvents = (account, onEvent, after = 0, onDisconnected) =>
+    stream(`/local-acceleration/events${account ? `?account=${encodeURIComponent(account)}` : ''}`, 'acceleration', onEvent, undefined, onDisconnected, { initialAfter: after, enableFallback: false })
+
+  return { request, events, agentEvents, localSearchEvents, localAccelerationEvents, diagnostic: (event, metadata = {}) => diagnostics.record(event, { origin: 'frontend', ...metadata }) }
 }

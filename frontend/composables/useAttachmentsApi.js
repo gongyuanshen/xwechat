@@ -8,6 +8,7 @@ export const useAttachmentsApi = () => {
     extract: (account, source, signal) => $fetch(`${base}/extract`, {
       method: 'POST', query: { account }, body: source, signal, retry: 0,
     }),
+    text: (account, source, signal) => $fetch(`${base}/text`, { query: { account, ...source }, signal, retry: 0 }),
     contentUrl: (account, item) => `${base}/content?${new URLSearchParams({ account, username: item.username, anchor: item.id, download: 'false' })}`,
     download: async (account, item, signal) => readAttachmentDownload(await fetch(`${base}/content?${new URLSearchParams({ account, username: item.username, anchor: item.id, download: 'true' })}`, { signal })),
   };

@@ -4,7 +4,7 @@ import json
 import mimetypes
 import re
 import sqlite3
-from contextlib import closing
+from contextlib import closing, nullcontext
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -14,6 +14,7 @@ from .account_workers import account_to_thread
 from .chat_helpers import _resolve_account_dir, _load_contact_rows, _pick_display_name
 from .chat_search_index import get_chat_search_index_db_path, get_chat_search_index_status, start_chat_search_index_build
 from .snapshot_registry import resolve_account_database_dir
+from .local_ocr import IMAGE_SUFFIXES, OcrUnavailableError
 
 
 DOCUMENT_SUFFIXES = {'.txt', '.md', '.csv', '.pdf', '.docx', '.xlsx', '.pptx'}
@@ -40,10 +41,52 @@ def extraction_state(body, *, kind='file', name=''):
         if status not in {'partial', 'complete', 'no_text'}:
             raise ValueError('附件正文缓存状态损坏')
         return {'status': status, 'text_excerpt': excerpt, 'text_characters': characters, 'skipped_images': value.get('skipped_images', 0),
+                'extraction_method': value.get('extraction_method', 'document_text'), 'ocr_units': value.get('ocr_units', 0),
+                'runtime': value.get('ocr_runtime'), 'ocr_engine': value.get('ocr_engine'),
                 'message': value.get('message', '') if status != 'partial' else '历史缓存可能只包含部分正文，请重新提取以确认完整范围。'}
+    if kind == 'image' or (kind == 'file' and Path(name).suffix.lower() in IMAGE_SUFFIXES):
+        return {'status': 'not_extracted', 'text_excerpt': '', 'text_characters': 0, 'message': '尚未识别图片文字。', 'skipped_images': 0}
     if kind != 'file' or Path(name).suffix.lower() not in DOCUMENT_SUFFIXES:
         return {'status': 'unsupported', 'text_excerpt': '', 'text_characters': 0, 'message': '此类型不支持本地文档正文提取。', 'skipped_images': 0}
     return {'status': 'not_extracted', 'text_excerpt': '', 'text_characters': 0, 'message': '尚未提取本地正文。', 'skipped_images': 0}
+
+
+def extraction_source_matches(method, signature, account, username, message):
+    from .ai.agent_tools import attachment_message_signature, normalize
+    if method not in {'document_text', 'local_ocr'}:
+        raise ValueError(f'附件正文缓存来源无效：{method}')
+    # Released document-text caches predate source signatures. OCR must be
+    # bound to the original message and its media identity.
+    if signature is None and method == 'document_text':
+        return True
+    if not isinstance(signature, dict):
+        raise ValueError('附件正文缓存缺少有效的原消息身份')
+    return signature == attachment_message_signature(normalize(account, username, message))
+
+
+def read_extracted_text(db, account, username, message):
+    """Read the full, source-checked cache in the caller's account transaction."""
+    row = db.execute("SELECT body,updated FROM records WHERE kind='local_media_text' AND id=? AND account=?",
+                     (attachment_key(account, username, message['id']), account)).fetchone()
+    if row is None:
+        raise HTTPException(404, '尚无提取或识别结果，请先提取正文或识别图片文字。')
+    cached = json.loads(row['body'])
+    state = extraction_state(cached)
+    if not isinstance(cached.get('text'), str):
+        raise ValueError('附件正文缓存损坏，缺少完整文字')
+    method = state['extraction_method']
+    if not extraction_source_matches(method, cached.get('message_signature'), account, username, message):
+        raise HTTPException(409, '原消息或附件来源已变化，请重新提取或识别后查看文字。')
+    digest, version = cached.get('file_hash'), cached.get('version')
+    if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest) or type(version) is not int or version < 1:
+        raise ValueError('附件正文缓存损坏，输入摘要或版本无效')
+    units = cached.get('ocr_units') if method == 'local_ocr' else cached.get('ocr_units', 0)
+    engine = cached.get('ocr_engine')
+    if type(units) is not int or units < 0 or (method == 'local_ocr' and (not isinstance(engine, str) or not engine)):
+        raise ValueError('附件正文缓存损坏，OCR 来源无效')
+    return {**state, 'text': cached['text'], 'complete': cached.get('complete') is True,
+            'file_hash': digest, 'version': version, 'ocr_units': units, 'ocr_engine': engine,
+            'cache_token': hashlib.sha256(row['body'].encode()).hexdigest(), 'updated': row['updated']}
 
 
 def ready_index(account_dir):
@@ -62,6 +105,10 @@ def ready_index(account_dir):
 
 def browse_attachments(store, account, *, kind='all', q='', search_in='name', username='', sender='',
                        start_time=None, end_time=None, offset=0, limit=40, filters=False):
+    def source_matches(method, signature, user, payload):
+        return extraction_source_matches(method, json.loads(signature) if signature is not None else None,
+                                         account, user, json.loads(payload))
+
     account_dir = _resolve_account_dir(account)
     index, status, message = ready_index(account_dir)
     result = {'status': status, 'account': account, 'items': [], 'has_more': False, 'next_offset': offset,
@@ -72,6 +119,7 @@ def browse_attachments(store, account, *, kind='all', q='', search_in='name', us
         db.row_factory = sqlite3.Row
         db.execute('ATTACH DATABASE ? AS ai', (store.path.resolve().as_uri() + '?mode=ro',))
         db.create_function('attachment_key', 2, lambda user, anchor: attachment_key(account, user, anchor), deterministic=True)
+        db.create_function('attachment_source_matches', 4, source_matches, deterministic=True)
         where = ["m.render_type IN ('file','image','video')", "m.db_stem <> 'anti_revoke'"]
         params = []
         for field, value in (('m.render_type', kind if kind != 'all' else ''), ('m.username', username), ('m.sender_username', sender)):
@@ -86,7 +134,9 @@ def browse_attachments(store, account, *, kind='all', q='', search_in='name', us
             params.append(end_time)
         scope = ' AND '.join(where)
         join = ("FROM message_meta m JOIN message_fts f ON f.rowid=m.rowid LEFT JOIN ai.records e "
-                "ON e.kind='local_media_text' AND e.account=? AND e.id=attachment_key(m.username,json_extract(f.payload_json,'$.id')) ")
+                "ON e.kind='local_media_text' AND e.account=? AND e.id=attachment_key(m.username,json_extract(f.payload_json,'$.id')) "
+                "AND attachment_source_matches(CASE WHEN json_type(e.body,'$.extraction_method') IS NULL THEN 'document_text' "
+                "ELSE json_extract(e.body,'$.extraction_method') END,json_extract(e.body,'$.message_signature'),m.username,f.payload_json) ")
         if filters:
             rows = db.execute('SELECT DISTINCT m.username,m.sender_username FROM message_meta m WHERE ' + scope, params).fetchall()
             users = sorted({r['username'] for r in rows})
@@ -94,11 +144,12 @@ def browse_attachments(store, account, *, kind='all', q='', search_in='name', us
             contacts = _load_contact_rows(resolve_account_database_dir(account_dir) / 'contact.db', list(set(users + senders)))
             return {**result, 'conversations': [{'value': u, 'label': _pick_display_name(contacts.get(u), u)} for u in users],
                     'senders': [{'value': u, 'label': _pick_display_name(contacts.get(u), u)} for u in senders]}
-        coverage = db.execute("SELECT count(*) AS total_files, sum(json_extract(e.body,'$.complete') IS 1) AS complete, "
+        coverage = db.execute("SELECT sum(m.render_type='file') AS total_files, sum(m.render_type='image') AS total_images, "
+                              "sum(json_extract(e.body,'$.complete') IS 1) AS complete, "
                               "sum(e.body IS NOT NULL AND json_extract(e.body,'$.complete') IS NOT 1) AS partial "
-                              + join + 'WHERE ' + scope + " AND m.render_type='file'", [account, *params]).fetchone()
-        result['coverage'] = {key: int(coverage[key] or 0) for key in ('total_files', 'complete', 'partial')}
-        result['coverage']['message'] = '正文搜索仅覆盖已提取的本地文档文字；扫描图片和未提取文件不在正文范围内。'
+                              + join + 'WHERE ' + scope + " AND m.render_type IN ('file','image')", [account, *params]).fetchone()
+        result['coverage'] = {key: int(coverage[key] or 0) for key in ('total_files', 'total_images', 'complete', 'partial')}
+        result['coverage']['message'] = '正文搜索仅覆盖已提取的文档文字和本地 OCR 结果；未提取或未识别的内容不在正文范围内。'
         if q:
             name_match = "instr(lower(coalesce(json_extract(f.payload_json,'$.title'),'')),lower(?))>0"
             body_match = "instr(lower(coalesce(json_extract(e.body,'$.text'),'')),lower(?))>0"
@@ -109,6 +160,8 @@ def browse_attachments(store, account, *, kind='all', q='', search_in='name', us
             "'text_excerpt',CASE WHEN json_type(e.body,'$.text')='text' THEN substr(json_extract(e.body,'$.text'),max(1,instr(lower(json_extract(e.body,'$.text')),lower(?))-100),600) END,"
             "'text_characters',length(json_extract(e.body,'$.text')), 'complete',json(CASE WHEN json_extract(e.body,'$.complete') IS 1 THEN 'true' ELSE 'false' END),"
             "'status',json_extract(e.body,'$.status'),'message',coalesce(json_extract(e.body,'$.message'),''),"
+            "'extraction_method',coalesce(json_extract(e.body,'$.extraction_method'),'document_text'),'ocr_units',coalesce(json_extract(e.body,'$.ocr_units'),0),"
+            "'ocr_runtime',json_extract(e.body,'$.ocr_runtime'),'ocr_engine',json_extract(e.body,'$.ocr_engine'),"
             "'skipped_images',coalesce(json_extract(e.body,'$.skipped_images'),0)) END AS extraction_body ")
         rows = db.execute('SELECT m.*,f.payload_json,' + extraction_projection + join + 'WHERE ' + ' AND '.join(where)
                           + ' ORDER BY m.create_time DESC,m.sort_seq DESC,m.local_id DESC,m.rowid DESC LIMIT ? OFFSET ?',
@@ -201,34 +254,69 @@ async def resolve_attachment(request, account, username, message):
             'preservation_note': '保存当前本地可解码图片，可能为缩略图，不保证原图。' if kind == 'image' else '已保存本地附件副本。'}
 
 
-def extract_document(ai, account, username, message, resolved):
+def extract_document(ai, account, username, message, resolved, *, ocr=False):
+    from .ai.agent_tools import attachment_message_signature, normalize
     from .ai.media import iter_document
+    from .local_ocr import recognize_image, ocr_job
     suffix = Path(resolved['name']).suffix.lower()
-    if message['renderType'] != 'file' or suffix not in DOCUMENT_SUFFIXES:
+    kind = message['renderType']
+    if ocr and not (kind == 'image' or kind == 'file' and suffix in IMAGE_SUFFIXES | {'.pdf'}):
+        raise HTTPException(422, '本地 OCR 支持图片消息、静态 PNG/JPEG/WebP/BMP/TIFF 文件和 PDF。')
+    if not ocr and (kind != 'file' or suffix not in DOCUMENT_SUFFIXES):
         raise HTTPException(422, '本地正文提取支持 TXT、MD、CSV、PDF、DOCX、XLSX 和 PPTX。')
     path = resolved['path']
-    if path.stat().st_size > 200 * 1024 * 1024:
-        raise HTTPException(413, '文档超过本地解析的 200 MB 单文件上限。')
-    data = path.read_bytes()
-    text, skipped = [], 0
+    size = path.stat().st_size if path is not None else len(resolved['data'])
+    if size > 200 * 1024 * 1024:
+        raise HTTPException(413, '附件超过本地解析的 200 MB 单文件上限。')
+    data = path.read_bytes() if path is not None else resolved['data']
+    text, skipped, ocr_units = [], 0, 0
+    parts = ({'label': '图片', 'image': data},) if kind == 'image' or suffix in IMAGE_SUFFIXES else iter_document(data, suffix, include_images=ocr, raw_images=ocr)
     try:
-        for part in iter_document(data, suffix, include_images=False):
-            if part.get('skipped_image'):
-                skipped += 1
-            elif part.get('text', '').strip():
-                text.append(f'[{part["label"]}] {part["text"]}')
+        with (ocr_job() if ocr else nullcontext()) as job:
+            for part in parts:
+                if part.get('skipped_image'):
+                    skipped += 1
+                elif 'image' in part:
+                    recognized = recognize_image(part['image'])
+                    ocr_units += 1
+                    if recognized.strip():
+                        text.append(f'[{part["label"]} · 本地 OCR] {recognized}')
+                elif part.get('text', '').strip():
+                    text.append(f'[{part["label"]}] {part["text"]}')
+    except OcrUnavailableError as error:
+        raise HTTPException(503, str(error)) from error
     except Exception as error:
-        raise HTTPException(422, f'本地文档解析失败：{error}') from error
+        raise HTTPException(422, f'{"本地 OCR" if ocr else "本地文档解析"}失败：{error}') from error
+    finally:
+        if kind == 'file' and suffix not in IMAGE_SUFFIXES:
+            parts.close()
     body = {'text': '\n'.join(text), 'username': username, 'anchor': message['id'],
-            'file_hash': hashlib.sha256(data).hexdigest(), 'version': 1, 'complete': True,
+            'file_hash': hashlib.sha256(data).hexdigest(), 'version': 2, 'complete': True,
+            'message_signature': attachment_message_signature(normalize(account, username, message)),
+            'extraction_method': 'local_ocr' if ocr else 'document_text', 'ocr_units': ocr_units,
+            'ocr_engine': job.engine_name if ocr else None,
+            'ocr_runtime': {**job.metadata(), 'active': False} if ocr else None,
             'status': 'complete' if text else 'no_text', 'skipped_images': skipped,
             'message': ('已提取本地文字，内嵌图片未识别。' if skipped else '已提取完整本地文字。') if text else '文件没有可提取文字；扫描图片未执行 OCR。'}
+    if ocr:
+        body['message'] = (f'已提取文字并识别 {ocr_units} 个图片部件；OCR 结果请核对原图。'
+                           if text else f'已识别 {ocr_units} 个图片部件，未检测到文字；不代表图片一定没有文字。')
     # Publish only after parsing completes; interruption/error never exposes a
     # partly parsed document as a complete extraction.
     from .library_service import LibraryService
     from .routers.ai import account_name
     with LibraryService(ai, account_name).transaction(account) as (db, owner):
         import time
+        key = attachment_key(owner, username, message['id'])
+        if not ocr:
+            previous = db.execute("SELECT body FROM records WHERE kind='local_media_text' AND id=? AND account=?", (key, owner)).fetchone()
+            if previous is not None:
+                previous = json.loads(previous[0])
+                # A plain parser cannot replace an OCR result for the same
+                # bytes with a less complete text layer. Changed files replace it.
+                if (previous.get('extraction_method') == 'local_ocr' and previous.get('complete') is True
+                        and previous['file_hash'] == body['file_hash'] and previous['message_signature'] == body['message_signature']):
+                    return extraction_state(previous)
         db.execute('INSERT INTO records VALUES(?,?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body,updated=excluded.updated',
-                   ('local_media_text', attachment_key(owner, username, message['id']), owner, json.dumps(body, ensure_ascii=False), time.time()))
+                   ('local_media_text', key, owner, json.dumps(body, ensure_ascii=False), time.time()))
     return extraction_state(body)

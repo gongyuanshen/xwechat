@@ -209,6 +209,48 @@ it('shows a saved attachment and its preservation boundary, with source-independ
   expect(api.downloadAttachment).toHaveBeenCalledWith('a', 'item');
   expect(wrapper.text()).toContain('副本文件读取失败');
 });
+
+it.each([
+  ['local_ocr', '本地 OCR 识别文字', 'paddleocr', 2],
+  ['document_text', '本地文档提取文字', null, 0],
+])('shows saved %s full text and provenance while keeping the body read-only', async (method, label, engine, units) => {
+  const record = { ...item, kind: 'extracted_text', title: '扫描件.pdf', content: `全文开头\n${'已识别文字'.repeat(300)}\n全文结尾`, report: null,
+    source: { username: 'friend', anchor: 'stable', text: '扫描件.pdf', sender: '好友', create_time: 1, render_type: 'file' },
+    extraction: { status: 'complete', complete: true, extraction_method: method, ocr_engine: engine, ocr_units: units,
+      file_hash: 'b'.repeat(64), version: 2, cache_token: 'a'.repeat(64), updated: 1 } };
+  api.listItems.mockResolvedValue([record]);
+  api.updateItem.mockResolvedValue({ ...record, notes: '核对后备注' });
+  api.exportItem = vi.fn().mockRejectedValue(new Error('导出文件写入失败'));
+  wrapper = mount(LibraryPage); await flushPromises();
+  expect(wrapper.find('.item').text()).toContain('识别/提取文字');
+  await wrapper.find('.item').trigger('click');
+  expect(wrapper.find('.detail h2').text()).toBe('识别/提取文字');
+  expect(wrapper.find('.detail pre').text()).toBe(record.content);
+  expect(wrapper.find('.extraction-summary').text()).toContain(label);
+  expect(wrapper.find('.extraction-summary').text()).toContain('提取流程已完成');
+  expect(wrapper.find('.extraction-source').text()).toBe('原消息：扫描件.pdf');
+  if (engine) {
+    expect(wrapper.find('.extraction-summary').text()).toContain('paddleocr');
+    expect(wrapper.find('.extraction-summary').text()).toContain('识别 2 个图片部件');
+  } else expect(wrapper.find('.extraction-summary').text()).not.toContain('OCR 引擎');
+  expect(wrapper.findAll('textarea')).toHaveLength(1);
+  expect(wrapper.findAll('button').some(button => button.text() === '编辑正文')).toBe(false);
+  await wrapper.find('textarea').setValue('核对后备注');
+  await wrapper.find('.detail form').trigger('submit'); await flushPromises();
+  expect(api.updateItem).toHaveBeenCalledWith('a', 'item', { folder_id: 'folder', verified: false, title: '扫描件.pdf', notes: '核对后备注', tags: [] });
+  state.privacy.value = true; await flushPromises();
+  expect(wrapper.find('.detail pre').classes()).toContain('privacy-blur');
+  expect(wrapper.find('.extraction-source').classes()).toContain('privacy-blur');
+  for (const [text, format] of [['导出 Markdown', 'markdown'], ['导出 HTML', 'html']]) {
+    const button = wrapper.findAll('button').find(button => button.text() === text);
+    expect(button.element.closest('.privacy-blur')).toBeNull();
+    await button.trigger('click'); await flushPromises();
+    expect(api.exportItem).toHaveBeenLastCalledWith('a', 'item', format);
+    expect(wrapper.find('[role=alert]').text()).toContain('导出文件写入失败');
+  }
+  await wrapper.findAll('button').find(button => button.text() === '打开原消息').trigger('click'); await flushPromises();
+  expect(globalThis.navigateTo).toHaveBeenCalledWith('/chat');
+});
 it.each(['item', 'folder'])('removes the deleted %s from the interface while preserving the cleanup failure', async kind => {
   vi.spyOn(window, 'confirm').mockReturnValue(true);
   const failure = { data: { detail: { code: 'library_cleanup_failed', record_deleted: true, message: '记录已删除，但附件文件清理失败' } } };

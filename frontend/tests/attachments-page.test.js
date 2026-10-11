@@ -1,35 +1,52 @@
-import { mount, flushPromises } from '@vue/test-utils';
+import { DOMWrapper, mount, flushPromises } from '@vue/test-utils';
 import { ref } from 'vue';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import AttachmentsPage from '../pages/attachments.vue';
+import { saveAttachmentDownload } from '../utils/attachmentDownload';
 
-const state = vi.hoisted(() => ({ account: null, privacy: null, api: null }));
+const state = vi.hoisted(() => ({ account: null, privacy: null, api: null, openAcceleration: vi.fn() }));
+vi.mock('~/composables/useSettingsDialog', () => ({ useSettingsDialog: () => ({ openLocalAcceleration: state.openAcceleration }) }));
 vi.mock('~/stores/chatAccounts', () => ({ useChatAccountsStore: () => state.account }));
 vi.mock('~/stores/privacy', () => ({ usePrivacyStore: () => state.privacy }));
 vi.mock('pinia', () => ({ storeToRefs: store => store }));
 vi.mock('~/composables/useAttachmentsApi', () => ({ useAttachmentsApi: () => state.api }));
+vi.mock('~/utils/attachmentDownload', () => ({ saveAttachmentDownload: vi.fn() }));
 let wrapper, navigation;
 const file = (id = 'message_0:Msg_room:1') => ({ id, username: 'room', name: '说明.txt', kind: 'file', conversation_name: '项目组', sender: 'alice', sender_name: 'Alice', create_time: 10, size: 20, extraction: { status: 'not_extracted', text_excerpt: '', text_characters: 0, message: '' } });
-const result = (items = [file()], extra = {}) => ({ status: 'success', items, coverage: { message: '正文搜索仅覆盖已提取内容', total_files: 3, complete: 0, partial: 0 }, has_more: false, next_offset: 40, ...extra });
+const fullText = (extra = {}) => ({ text: '第一行\n第二行\n第三行\n摘录之外的完整第四行', status: 'complete', complete: true, extraction_method: 'local_ocr', ocr_units: 1, ocr_engine: 'RapidOCR', file_hash: 'f'.repeat(64), version: 2, cache_token: 'a'.repeat(64), updated: 1791676800, ...extra });
+const recognizedImage = () => ({ ...file(), kind: 'image', name: '凭证图片', extraction: { status: 'complete', extraction_method: 'local_ocr', text_characters: 25, text_excerpt: '仅有摘录' } });
+const result = (items = [file()], extra = {}) => ({ status: 'success', items, coverage: { message: '正文搜索仅覆盖已提取内容', total_files: 3, total_images: 2, complete: 0, partial: 0 }, has_more: false, next_offset: 40, ...extra });
 const button = text => wrapper.findAll('button').find(row => row.text() === text);
 const open = async () => {
-  wrapper = mount(AttachmentsPage, { global: { stubs: { LibrarySaveDialog: { name: 'LibrarySaveDialog', props: ['account', 'item'], template: '<div />' } } } });
+  wrapper = mount(AttachmentsPage, { attachTo: document.body, global: { stubs: { LibrarySaveDialog: { name: 'LibrarySaveDialog', props: ['account', 'item'], template: '<div />' } } } });
   await flushPromises();
 };
 beforeEach(() => {
+  state.openAcceleration.mockClear();
   state.account = { selectedAccount: ref('account-a'), error: '', ensureLoaded: vi.fn() };
   state.privacy = { privacyMode: ref(false) };
   state.api = {
     list: vi.fn(async () => result()),
     filters: vi.fn(async () => ({ status: 'success', conversations: [{ value: 'room', label: '项目组' }], senders: [{ value: 'alice', label: 'Alice' }] })),
-    extract: vi.fn(), download: vi.fn(), contentUrl: vi.fn(() => '/content'),
+    extract: vi.fn(), text: vi.fn(async () => fullText()), download: vi.fn(), contentUrl: vi.fn(() => '/content'),
   };
   navigation = ref(null);
   vi.stubGlobal('useHead', vi.fn());
   vi.stubGlobal('useState', () => navigation);
   vi.stubGlobal('navigateTo', vi.fn(async () => true));
+  vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn(async () => {}) } });
 });
-afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { wrapper?.unmount(); document.body.innerHTML = ''; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+it('opens shared acceleration settings and displays recorded OCR partition evidence', async () => {
+  const image = recognizedImage();
+  image.extraction.runtime = { actual_device: 'dml', device_name: 'AMD RX', evidence: { cpu_nodes: 2 } };
+  state.api.list.mockResolvedValue(result([image]));
+  await open();
+  await button('管理本地加速').trigger('click');
+  expect(state.openAcceleration).toHaveBeenCalledOnce();
+  expect(wrapper.text()).toContain('GPU + 部分 CPU');
+});
 
 it('browses without keywords and applies all filters with local calendar bounds', async () => {
   await open();
@@ -138,10 +155,287 @@ it.each(['image', 'video'])('gives conditional download guidance when a %s previ
   await open();
   await button('预览').trigger('click');
   await flushPromises();
-  await wrapper.find(kind === 'image' ? '.attachment-preview img' : '.attachment-preview video').trigger('error');
-  const alert = wrapper.find('.attachment-preview [role=alert]').text();
+  const preview = new DOMWrapper(document.querySelector('.attachment-preview'));
+  await preview.find(kind === 'image' ? 'img' : 'video').trigger('error');
+  const alert = preview.find('[role=alert]').text();
   expect(alert).toContain('若尚未下载，请先在电脑版微信中打开并下载，再重试');
   expect(alert).toContain('若已下载仍无法预览，请点击“下载”查看具体错误');
   if (kind === 'video') expect(alert).toContain('浏览器也可能不支持此视频编码');
   expect(state.api.download).not.toHaveBeenCalled();
+});
+
+it.each(['image', 'video'])('opens %s in a separate modal without scrolling the attachment list', async kind => {
+  const item = { ...file(), kind, name: '本机附件' };
+  state.api.list.mockResolvedValue(result([item]));
+  const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+  await open();
+  const scroll = wrapper.find('.records-page__scroll').element, trigger = button('预览');
+  scroll.scrollTop = 420;
+  trigger.element.focus({ preventScroll: true });
+  await trigger.trigger('click'); await flushPromises();
+  const dialog = document.querySelector('dialog.attachment-preview');
+  expect(dialog).not.toBeNull();
+  expect(dialog.parentElement).toBe(document.body);
+  expect(dialog.open).toBe(true);
+  expect(scroll.contains(dialog)).toBe(false);
+  expect(scroll.scrollTop).toBe(420);
+  expect(scrollIntoView).not.toHaveBeenCalled();
+  expect(dialog.querySelector(kind === 'image' ? 'img' : 'video').getAttribute('src')).toBe('/content');
+  expect(state.api.contentUrl).toHaveBeenCalledWith('account-a', expect.objectContaining({ id: item.id, username: item.username }));
+  await new DOMWrapper(dialog).find('button').trigger('click'); await flushPromises();
+  expect(document.querySelector('.attachment-preview')).toBeNull();
+  expect(document.activeElement).toBe(trigger.element);
+  expect(scroll.scrollTop).toBe(420);
+});
+
+it.each(['cancel', 'backdrop'])('closes the media modal through %s without moving the list', async action => {
+  state.api.list.mockResolvedValue(result([recognizedImage()]));
+  await open();
+  const trigger = button('预览'), scroll = wrapper.find('.records-page__scroll').element;
+  scroll.scrollTop = 420;
+  await trigger.trigger('click'); await flushPromises();
+  const dialog = new DOMWrapper(document.querySelector('dialog.attachment-preview'));
+  if (action === 'cancel') await dialog.trigger('cancel');
+  else await dialog.trigger('click', { clientX: -1, clientY: -1 });
+  await flushPromises();
+  expect(document.querySelector('.attachment-preview')).toBeNull();
+  expect(document.activeElement).toBe(trigger.element);
+  expect(scroll.scrollTop).toBe(420);
+});
+
+it('preserves privacy in the modal and closes it when switching accounts', async () => {
+  state.api.list.mockResolvedValue(result([recognizedImage()]));
+  state.privacy.privacyMode.value = true;
+  await open(); await button('预览').trigger('click'); await flushPromises();
+  const dialog = document.querySelector('dialog.attachment-preview');
+  expect(dialog).not.toBeNull();
+  expect(dialog.querySelector('img').classList.contains('privacy-blur')).toBe(true);
+  expect(dialog.querySelector('h2').classList.contains('privacy-blur')).toBe(true);
+  state.account.selectedAccount.value = 'account-b'; await flushPromises();
+  expect(document.querySelector('.attachment-preview')).toBeNull();
+});
+
+it('does not open a preview after its account changes before the next render', async () => {
+  state.api.list.mockResolvedValue(result([recognizedImage()]));
+  await open();
+  button('预览').element.click();
+  state.account.selectedAccount.value = 'account-b'; await flushPromises();
+  expect(document.querySelector('.attachment-preview')).toBeNull();
+});
+
+it('explicitly requests local OCR and displays recognized image text with its source', async () => {
+  state.api.list.mockResolvedValue(result([{ ...file(), kind: 'image', name: '聊天图片' }]));
+  state.api.extract.mockResolvedValue({ status: 'complete', extraction_method: 'local_ocr', ocr_units: 1, text_excerpt: '发票编号 12345', text_characters: 10, message: '' });
+  await open();
+  expect(button('识别图片文字')).toBeDefined();
+  await button('识别图片文字').trigger('click'); await flushPromises();
+  expect(state.api.extract).toHaveBeenCalledWith('account-a', { username: 'room', anchor: file().id, ocr: true }, expect.any(AbortSignal));
+  expect(wrapper.find('.attachment-row').text()).toContain('发票编号 12345');
+  expect(wrapper.find('.attachment-row').text()).toContain('本地 OCR');
+  expect(wrapper.find('.attachment-row').text()).toContain('请核对原图');
+  expect(wrapper.text()).toContain('2 张图片');
+});
+
+it('offers OCR for supported images and PDFs and skips previously recognized attachments in batch', async () => {
+  const attachments = [
+    { ...file(), name: '扫描.PDF', extraction: { status: 'no_text', extraction_method: 'document_text' } },
+    { ...file('message_0:Msg_room:2'), name: '发票.TIFF' },
+    { ...file('message_0:Msg_room:3'), kind: 'image', name: '聊天图片' },
+    { ...file('message_0:Msg_room:4'), name: '已识别.pdf', extraction: { status: 'complete', extraction_method: 'local_ocr', ocr_units: 1 } },
+    { ...file('message_0:Msg_room:5'), name: '动画.gif' },
+    { ...file('message_0:Msg_room:6'), kind: 'video', name: '视频.mp4' },
+    { ...file('message_0:Msg_room:7'), name: '报告.docx' },
+  ];
+  state.api.list.mockResolvedValue(result(attachments));
+  state.api.extract.mockResolvedValue({ status: 'no_text', extraction_method: 'local_ocr', ocr_units: 1, text_excerpt: '', text_characters: 0, message: '未识别出文字' });
+  await open();
+  const rows = wrapper.findAll('.attachment-row');
+  expect(rows[0].text()).toContain('识别 PDF 图片文字');
+  expect(rows[1].text()).toContain('识别图片文字');
+  for (const index of [4, 5, 6]) expect(rows[index].findAll('button').some(row => row.text().startsWith('识别'))).toBe(false);
+  expect(button('识别当前页图片与 PDF 文字')).toBeDefined();
+  await button('识别当前页图片与 PDF 文字').trigger('click'); await flushPromises();
+  expect(state.api.extract.mock.calls.map(call => call[1])).toEqual([
+    { username: 'room', anchor: 'message_0:Msg_room:1', ocr: true },
+    { username: 'room', anchor: 'message_0:Msg_room:2', ocr: true },
+    { username: 'room', anchor: 'message_0:Msg_room:3', ocr: true },
+  ]);
+  expect(button('识别当前页图片与 PDF 文字').attributes('disabled')).toBeDefined();
+});
+
+it('stops OCR after the active attachment without aborting it or starting the next one', async () => {
+  let finish;
+  state.api.list.mockResolvedValue(result([{ ...file(), kind: 'image' }, { ...file('message_0:Msg_room:2'), name: '扫描.pdf' }]));
+  state.api.extract.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await open();
+  expect(button('识别当前页图片与 PDF 文字')).toBeDefined();
+  await button('识别当前页图片与 PDF 文字').trigger('click');
+  const signal = state.api.extract.mock.calls[0][2];
+  await button('停止后续识别').trigger('click');
+  expect(signal.aborted).toBe(false);
+  finish({ status: 'complete', extraction_method: 'local_ocr', ocr_units: 1, text_excerpt: '当前图片文字', text_characters: 6, message: '' }); await flushPromises();
+  expect(state.api.extract).toHaveBeenCalledTimes(1);
+  expect(wrapper.text()).toContain('当前图片文字');
+  expect(wrapper.text()).toContain('已停止后续识别');
+});
+
+it.each(['account', 'filter'])('suppresses stale OCR completion after a %s change', async change => {
+  let finish;
+  state.api.list.mockImplementation(async () => result([{ ...file(), kind: 'image' }]));
+  state.api.extract.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await open();
+  expect(button('识别图片文字')).toBeDefined();
+  await button('识别图片文字').trigger('click');
+  const signal = state.api.extract.mock.calls[0][2];
+  if (change === 'account') state.account.selectedAccount.value = 'account-b';
+  else await wrapper.find('input[type=search]').setValue('新查询');
+  await flushPromises();
+  finish({ status: 'complete', extraction_method: 'local_ocr', ocr_units: 1, text_excerpt: '旧账号图片隐私文字', text_characters: 9, message: '' }); await flushPromises();
+  expect(signal.aborted).toBe(true);
+  expect(wrapper.text()).not.toContain('旧账号图片隐私文字');
+  expect(wrapper.text()).not.toContain('识别结束');
+});
+
+it('shows the actual OCR failure without silently requesting document extraction', async () => {
+  state.api.list.mockResolvedValue(result([{ ...file(), name: '扫描.pdf' }]));
+  state.api.extract.mockRejectedValue({ data: { detail: { message: '本地 OCR 模型文件缺失' } } });
+  await open();
+  expect(button('识别 PDF 图片文字')).toBeDefined();
+  await button('识别 PDF 图片文字').trigger('click'); await flushPromises();
+  expect(wrapper.find('.attachment-row [role=alert]').text()).toContain('本地 OCR 模型文件缺失');
+  expect(wrapper.text()).toContain('失败 1 项');
+  expect(state.api.extract).toHaveBeenCalledTimes(1);
+  expect(state.api.extract.mock.calls[0][1]).toEqual({ username: 'room', anchor: file().id, ocr: true });
+});
+
+it('keeps image files out of document extraction while allowing their OCR', async () => {
+  state.api.list.mockResolvedValue(result([{ ...file(), name: '发票.PNG' }]));
+  await open();
+  expect(button('提取当前页文件正文').attributes('disabled')).toBeDefined();
+  expect(button('提取正文')).toBeUndefined();
+  expect(button('识别图片文字').attributes('disabled')).toBeUndefined();
+  expect(button('识别当前页图片与 PDF 文字').attributes('disabled')).toBeUndefined();
+});
+
+it('opens full cached text beyond the excerpt and copies or exports that full text', async () => {
+  state.api.list.mockResolvedValue(result([recognizedImage()]));
+  await open();
+  expect(button('查看全文')).toBeDefined();
+  await button('查看全文').trigger('click'); await flushPromises();
+  expect(state.api.text).toHaveBeenCalledWith('account-a', { username: 'room', anchor: file().id }, expect.any(AbortSignal));
+  expect(wrapper.find('.attachment-fulltext pre').text()).toBe(fullText().text);
+  expect(wrapper.find('.attachment-fulltext').text()).toContain('本地OCR识别文字');
+  await button('复制全文').trigger('click'); await flushPromises();
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith(fullText().text);
+  expect(wrapper.find('.attachment-fulltext').text()).toContain('全文已复制');
+  await button('导出 TXT').trigger('click');
+  const download = saveAttachmentDownload.mock.calls.at(-1)[0];
+  expect(download.filename).toMatch(/\.txt$/);
+  expect(await download.blob.text()).toBe(fullText().text);
+  expect(download.blob.type).toBe('text/plain;charset=utf-8');
+});
+
+it('opens full text after individual recognition but leaves batch results collapsed', async () => {
+  state.api.list.mockImplementation(async () => result([{ ...file(), kind: 'image' }]));
+  state.api.extract.mockResolvedValue(recognizedImage().extraction);
+  await open();
+  await button('识别图片文字').trigger('click'); await flushPromises();
+  expect(wrapper.find('.attachment-fulltext pre').exists()).toBe(true);
+  expect(wrapper.find('.attachment-fulltext pre').text()).toContain('完整第四行');
+  await button('关闭全文').trigger('click');
+  state.api.text.mockClear();
+  await wrapper.find('form').trigger('submit'); await flushPromises();
+  await button('识别当前页图片与 PDF 文字').trigger('click'); await flushPromises();
+  expect(state.api.text).not.toHaveBeenCalled();
+  expect(wrapper.find('.attachment-fulltext').exists()).toBe(false);
+});
+
+it('saves authoritative full text by its source and cache token without sending content', async () => {
+  state.api.list.mockResolvedValue(result([recognizedImage()]));
+  await open();
+  expect(button('查看全文')).toBeDefined();
+  await button('查看全文').trigger('click'); await flushPromises();
+  await button('保存识别文字到资料夹').trigger('click');
+  const dialog = wrapper.findComponent({ name: 'LibrarySaveDialog' });
+  expect(dialog.props('item')).toEqual({ kind: 'extracted_text', source: { username: 'room', anchor: file().id }, cache_token: 'a'.repeat(64), title: '凭证图片 · 识别文字' });
+  dialog.vm.$emit('saved', { kind: 'extracted_text' }); await flushPromises();
+  expect(wrapper.text()).toContain('文字及出处已保存到本地资料夹');
+  expect(wrapper.text()).not.toContain('附件副本已保存');
+});
+
+it('marks partial full text and disables saving it while allowing copy and TXT export', async () => {
+  state.api.list.mockResolvedValue(result([recognizedImage()]));
+  state.api.text.mockResolvedValue(fullText({ status: 'partial', complete: false }));
+  await open();
+  expect(button('查看全文')).toBeDefined();
+  await button('查看全文').trigger('click'); await flushPromises();
+  expect(wrapper.find('.attachment-fulltext').text()).toContain('部分结果');
+  expect(button('保存识别文字到资料夹').attributes('disabled')).toBeDefined();
+  expect(button('复制全文').attributes('disabled')).toBeUndefined();
+  expect(button('导出 TXT').attributes('disabled')).toBeUndefined();
+});
+
+it('reports full text and clipboard failures instead of copying the excerpt or showing success', async () => {
+  state.api.list.mockResolvedValue(result([recognizedImage()]));
+  state.api.text.mockRejectedValueOnce({ data: { detail: { message: '缓存与原附件不一致，请重新识别' } } });
+  await open();
+  expect(button('查看全文')).toBeDefined();
+  await button('查看全文').trigger('click'); await flushPromises();
+  expect(wrapper.find('.attachment-fulltext [role=alert]').text()).toContain('缓存与原附件不一致');
+  expect(wrapper.find('.attachment-fulltext pre').exists()).toBe(false);
+  expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+  await button('重试读取全文').trigger('click'); await flushPromises();
+  navigator.clipboard.writeText.mockRejectedValue(new Error('剪贴板访问被拒绝'));
+  await button('复制全文').trigger('click'); await flushPromises();
+  expect(wrapper.find('.attachment-fulltext [role=alert]').text()).toContain('剪贴板访问被拒绝');
+  expect(wrapper.text()).not.toContain('全文已复制');
+});
+
+it.each(['account', 'filter', 'close', 'unmount'])('aborts full text loading and suppresses stale data after %s', async change => {
+  let finish;
+  state.api.list.mockImplementation(async () => result([recognizedImage()]));
+  state.api.text.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await open();
+  expect(button('查看全文')).toBeDefined();
+  await button('查看全文').trigger('click');
+  const signal = state.api.text.mock.calls[0][2];
+  if (change === 'account') state.account.selectedAccount.value = 'account-b';
+  if (change === 'filter') await wrapper.find('input[type=search]').setValue('新条件');
+  if (change === 'close') await button('关闭全文').trigger('click');
+  if (change === 'unmount') wrapper.unmount();
+  await flushPromises();
+  expect(signal.aborted).toBe(true);
+  finish(fullText({ text: '旧账号全文隐私' })); await flushPromises();
+  expect(wrapper.text()).not.toContain('旧账号全文隐私');
+  if (change !== 'unmount') expect(wrapper.find('.attachment-fulltext').exists()).toBe(false);
+});
+
+it('suppresses a late clipboard notice after switching accounts and keeps full text private', async () => {
+  let finish;
+  state.api.list.mockImplementation(async () => result([recognizedImage()]));
+  navigator.clipboard.writeText.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await open();
+  expect(button('查看全文')).toBeDefined();
+  await button('查看全文').trigger('click'); await flushPromises();
+  state.privacy.privacyMode.value = true; await flushPromises();
+  expect(wrapper.find('.attachment-fulltext pre').classes()).toContain('privacy-blur');
+  expect(button('复制全文').element.closest('.privacy-blur')).toBeNull();
+  await button('复制全文').trigger('click');
+  state.account.selectedAccount.value = 'account-b'; await flushPromises();
+  finish(); await flushPromises();
+  expect(wrapper.text()).not.toContain('全文已复制');
+  expect(wrapper.find('.attachment-fulltext').exists()).toBe(false);
+});
+
+it('keeps successful OCR separate from a failure to read its full text', async () => {
+  state.api.list.mockResolvedValue(result([{ ...file(), kind: 'image' }]));
+  state.api.extract.mockResolvedValue(recognizedImage().extraction);
+  state.api.text.mockRejectedValue(new Error('全文读取失败'));
+  await open();
+  await button('识别图片文字').trigger('click'); await flushPromises();
+  expect(wrapper.find('.attachment-fulltext [role=alert]').text()).toBe('全文读取失败');
+  expect(wrapper.find('.attachment-notice').text()).toContain('处理 1 项，失败 0 项');
+  expect(wrapper.find('.attachment-extraction').text()).toContain('文字已识别');
+  expect(button('重试读取全文')).toBeDefined();
+  expect(state.api.extract).toHaveBeenCalledTimes(1);
 });

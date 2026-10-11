@@ -21,12 +21,14 @@ from .anti_revoke import (
 )
 from .chat_helpers import (
     _decode_sqlite_text,
+    _decode_message_content,
     _quote_ident,
     _resolve_msg_table_name_by_map,
     _row_to_search_hit,
     _should_keep_session,
     _to_char_token_text,
     _iter_message_db_paths,
+    _resource_lookup_chat_id,
 )
 from .logging_config import get_logger
 from .account_identity import resolve_account_username
@@ -34,7 +36,7 @@ from .data_source import normalize_data_source
 
 logger = get_logger(__name__)
 
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
 _INDEX_DB_NAME = "chat_search_index.db"
 _INDEX_DB_TMP_NAME = "chat_search_index.tmp.db"
 _LEGACY_INDEX_DB_NAME = "message_fts.db"
@@ -356,8 +358,9 @@ def _snapshot_index_sources(account_dir: Path, db_paths: list[Path], sessions: d
         return None
     generation = database_dir.parents[1]
     metadata = _validate_generation(account_dir, generation, _generation_account(account_dir, database_dir.name))
-    shards = {}
-    for path in db_paths:
+    shards, resource_identity = {}, None
+    resource_path = database_dir / 'message_resource.db'
+    for path in [*db_paths, *([resource_path] if resource_path.exists() else [])]:
         files = _source_files(metadata['manifest'], path.name)
         if not any(Path(name).name == path.name for name in files):
             raise SnapshotRegistryError(f"Snapshot source manifest is missing {path.name}")
@@ -368,14 +371,18 @@ def _snapshot_index_sources(account_dir: Path, db_paths: list[Path], sessions: d
         if (not os.path.samestat(before, path.stat()) or before.st_size != after.st_size
                 or before.st_mtime_ns != after.st_mtime_ns):
             raise SnapshotRegistryError(f"Snapshot database changed while preparing index: {path}")
-        shards[path.stem] = {
+        identity = {
             'captured': {name: {field: entry[field] for field in ('size', 'sha256')}
                          for name, entry in files.items()},
             'decrypted_sha256': digest,
         }
+        if path == resource_path:
+            resource_identity = identity
+        else:
+            shards[path.stem] = identity
     return {'version': 1, 'shards': shards, 'sessions': sessions,
             'identity': [resolve_account_username(account_dir), *account_identity_candidates(account_dir)],
-            'anti_revoke_signature': anti_revoke_signature}
+            'anti_revoke_signature': anti_revoke_signature, 'message_resource': resource_identity}
 
 
 def _reuse_snapshot_index(account_dir: Path, tmp_path: Path, sources: dict | None,
@@ -714,6 +721,12 @@ _INDEX_PAYLOAD_KEYS = (
     "url",
     "quoteTitle",
     "quoteContent",
+    "fileMd5",
+    "fileSize",
+    "imageMd5",
+    "imageFileId",
+    "videoMd5",
+    "videoFileId",
     "amount",
     "locationPoiname",
     "locationLabel",
@@ -806,6 +819,7 @@ def _anti_revoke_signature(rows: list[dict[str, Any]]) -> str:
 
 
 def _build_worker(account_dir: Path, rebuild: bool, source: str = "decrypted") -> None:
+    from .chat_export_service import _Row, _parse_message_for_export
     key = _account_key(account_dir)
     started = time.time()
     tmp_path = _index_db_tmp_path(account_dir)
@@ -831,7 +845,12 @@ def _build_worker(account_dir: Path, rebuild: bool, source: str = "decrypted") -
         unchanged_shards = _reuse_snapshot_index(account_dir, tmp_path, snapshot_sources, rebuild)
         conn_fts = sqlite3.connect(str(tmp_path))
         conn_fts.isolation_level = None  # manual transaction control (prevents implicit BEGIN)
+        resource_conn = None
         try:
+            resource_path = resolve_account_database_dir(account_dir) / 'message_resource.db'
+            if resource_path.exists():
+                resource_conn = sqlite3.connect(resource_path.resolve().as_uri() + '?mode=ro', uri=True)
+                resource_conn.row_factory = sqlite3.Row
             _init_index_db(conn_fts)
             conn_fts.commit()
             insert_sql = (
@@ -932,18 +951,21 @@ def _build_worker(account_dir: Path, rebuild: bool, source: str = "decrypted") -
 
                         is_group = bool(conv_username.endswith("@chatroom"))
                         quoted_table = _quote_ident(table_name)
+                        columns = {_decode_sqlite_text(column[1]).lower() for column in msg_conn.execute(f'PRAGMA table_info({quoted_table})')}
+                        packed_select = 'm.packed_info_data AS packed_info_data, ' if 'packed_info_data' in columns else 'NULL AS packed_info_data, '
+                        resource_chat_id = _resource_lookup_chat_id(resource_conn, conv_username) if resource_conn is not None else None
 
                         sql_with_join = (
                             "SELECT "
                             "m.local_id, m.server_id, m.local_type, m.sort_seq, m.real_sender_id, m.create_time, "
-                            "m.message_content, m.compress_content, n.user_name AS sender_username "
+                            "m.message_content, m.compress_content, " + packed_select + "n.user_name AS sender_username "
                             f"FROM {quoted_table} m "
                             "LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid"
                         )
                         sql_no_join = (
                             "SELECT "
                             "m.local_id, m.server_id, m.local_type, m.sort_seq, m.real_sender_id, m.create_time, "
-                            "m.message_content, m.compress_content, '' AS sender_username "
+                            "m.message_content, m.compress_content, " + packed_select + "'' AS sender_username "
                             f"FROM {quoted_table} m "
                         )
 
@@ -963,6 +985,17 @@ def _build_worker(account_dir: Path, rebuild: bool, source: str = "decrypted") -
                                 my_rowid=my_rowid,
                                 self_username=db_self_username,
                             )
+                            if hit['renderType'] in {'file', 'image', 'video'}:
+                                # 与原消息和语义读取共用附件解析，避免轻量搜索字段丢掉来源定位。
+                                attachment = _parse_message_for_export(row=_Row(
+                                    db_stem=db_path.stem, table_name=table_name, local_id=hit['localId'],
+                                    server_id=hit['serverId'], local_type=hit['type'], sort_seq=hit['sortSeq'],
+                                    create_time=hit['createTime'], raw_text=_decode_message_content(r['compress_content'], r['message_content']).strip(),
+                                    sender_username=hit['senderUsername'], is_sent=hit['isSent'], packed_info_data=r['packed_info_data']),
+                                    conv_username=conv_username, is_group=is_group, resource_conn=resource_conn,
+                                    resource_chat_id=resource_chat_id)
+                                hit.update({field: attachment[field] for field in ('content', 'title', 'quoteTitle', 'quoteContent',
+                                    'fileMd5', 'fileSize', 'imageMd5', 'imageFileId', 'videoMd5', 'videoFileId')})
 
                             sid = str(hit.get("serverIdStr") or hit.get("serverId") or "").strip()
                             lid = int(hit.get("localId") or 0)
@@ -1180,6 +1213,8 @@ def _build_worker(account_dir: Path, rebuild: bool, source: str = "decrypted") -
                                  ('snapshot_sources', json.dumps(snapshot_sources, ensure_ascii=False, sort_keys=True)))
             conn_fts.commit()
         finally:
+            if resource_conn is not None:
+                resource_conn.close()
             conn_fts.close()
 
         if rebuild or final_path.exists():

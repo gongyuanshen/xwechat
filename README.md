@@ -48,7 +48,7 @@ The table below describes features in the current source code. Previously downlo
 | Multiple accounts and synchronization | Switch between local accounts; periodically synchronize verified snapshots and refresh manually for accounts bound to a source directory and key; browse imported historical archives independently |
 | Chat browsing and search | Browse private chats, group chats, images, videos, voice messages, stickers, replies, merged chat records, and more; search by keyword, conversation, sender, date, and message type; view context, calendar heatmaps, and floating history windows |
 | Personal library and saved searches | Save search filters, original chat messages, attachment copies, and completed Agent reports per account; filter by message type and rolling date range; manage folders, notes, tags, and manual verification; edit report copies and export Markdown/HTML; [guide (Chinese)](docs/personal-library.md) |
-| Cross-chat attachment center | Find files, images, and videos by name, type, conversation, sender, and date; explicitly extract and search text from local documents; preview, download, locate original messages, and add items to the personal library |
+| Cross-chat attachment center | Find files, images, and videos by name, type, conversation, sender, and date; explicitly extract document text or run local OCR on static images and PDF image content; view/copy full text, export TXT, save text copies, and search cached text; preview, download, locate original messages, and add items to the personal library |
 | Disk usage management | View per-account usage for databases, media, indexes, snapshots, and library copies in Settings; explicitly remove rebuildable full-text indexes while protecting original messages, attachments, snapshots, and running tasks; [guide (Chinese)](docs/performance-storage.md) |
 | Contacts and service accounts | View contact categories, profiles, group members, friend verification records, and service account messages; export contact profiles |
 | Moments | Browse the local timeline, historical cover images, images, videos, Live Photos, likes, and comments; perform full and incremental exports |
@@ -70,12 +70,12 @@ The table below describes features in the current source code. Previously downlo
 
 Check [GitHub Releases](https://github.com/gongyuanshen/xwechat/releases) for published versions and their notes. Windows x64 packages are available in the following forms:
 
-The current project version is `1.2.0`. Version numbering for this independent project starts at `1.0.0`. Refer to the Releases page for the packages actually published and their versions.
+The current project version is `1.3.0`. Version numbering for this independent project starts at `1.0.0`. Refer to the Releases page for the packages actually published and their versions.
 
 - **Installer**: Run `xwechat-<version>-Setup.exe` and select a directory in the installation wizard.
 - **Portable package**: Fully extract `xwechat-<version>-Setup.zip` and run `xwechat.exe` from the extracted directory. Keep all resources in that directory.
 
-Desktop packages include Electron, the Python backend, and basic runtime components; you do not need to install Python or Node.js separately. Laya, speech, and semantic retrieval **model weights must be prepared separately**. The Qwen GPU speech model also requires a package containing its runtime components. See [Windows packaging](#windows-packaging) for build instructions.
+Desktop packages include Electron, the Python backend, and basic runtime components; you do not need to install Python or Node.js separately. Current builds also collect local CPU OCR components and their weights. Optional AMD DirectML components for retrieval/OCR and NVIDIA CUDA components for retrieval are managed under **“Settings → Local acceleration”**; see the [scope and acceptance record (Chinese)](docs/local-acceleration.md). Laya, speech, and semantic retrieval **model weights must be prepared separately**. The Qwen GPU speech model also requires a package containing its runtime components. See [Windows packaging](#windows-packaging) for build instructions.
 
 ### Connect to local data for the first time
 
@@ -93,7 +93,7 @@ Choose **“Import backup”** on the home page and select an original account Z
 
 Review the detected account, databases, and resources before confirming the import. Data is copied into the application’s local data area; an existing account with the same name is backed up first, and the original backup directory is not modified directly. Ordinary chat reading exports and complete account archives serve different purposes. To import an account, use an account archive or a decrypted directory that meets the requirements.
 
-The chat search sidebar can save frequently used filters, including message type and rolling date ranges. The original-message context menu offers **“Add to library”**, and completed Agent answers offer **“Save report”**. **“Attachment center”** in the sidebar provides cross-chat attachment search and local document text extraction; **“Personal library”** manages and exports copies. See the [guide (Chinese)](docs/personal-library.md) for operations and backup boundaries.
+The chat search sidebar can save frequently used filters, including message type and rolling date ranges. The original-message context menu offers **“Add to library”**, and completed Agent answers offer **“Save report”**. **“Attachment center”** in the sidebar provides cross-chat attachment search, document text extraction, and explicit local OCR for individual items or the current page; **“Personal library”** manages and exports copies. See the [guide (Chinese)](docs/personal-library.md) for supported formats, search coverage, and backup boundaries.
 
 ## Export and annual sharing
 
@@ -123,7 +123,7 @@ The Agent is built on **DeepAgents** and uses your selected model service. It pl
 - **Entry points and scope**: First select a connected WeChat account, then open **“AI assistant”** in the sidebar and use **“@Chats”** to select all readable chats or specific private/group chats. Each standalone AI conversation has a fixed chat scope; changing the scope starts a new conversation, and you must stop any ongoing processing first. **“Conversation”** mode in the chat page’s right-side AI panel uses the same Agent. You can start with the current chat and find other chats as needed.
 - **Retrieval and analysis**: Find messages by person, conversation, date, and keyword; read long chats in pages and check surrounding context. Supported tasks include cross-chat search, event timelines, progress tracking, to-do lists, and relationship-clue analysis. When local semantic search is enabled, keyword and semantic retrieval can be combined.
 - **Task planning and subtasks**: Complex questions can use independent scope analysis, topic retrieval, or fact-checking subtasks as needed, while the main Agent continues its analysis and combines the results. The interface displays actual tool calls, subtask states, and progress, and explains coverage gaps when materials have not yet been fully read or are unavailable.
-- **Image and attachment understanding**: The Agent can process local images in chats and attachments such as TXT, Markdown, CSV, PDF, DOCX, XLSX, and PPTX. Images, scanned PDFs, and document illustrations require image understanding support from the selected model. Missing, oversized, or unsupported content is reported as a processing gap.
+- **Image and attachment understanding**: The Agent can process local images in chats and attachments such as TXT, Markdown, CSV, PDF, DOCX, XLSX, and PPTX. Attachment center OCR runs locally on the CPU or a verified AMD DirectML GPU selected in **“Settings → Local acceleration”**, without runtime model downloads or cloud calls; completed results record the actual device, and indexed OCR text can provide retrieval evidence with its original source and OCR label. Visual understanding of images, scanned PDFs, and illustrations still requires support from the selected model. A remote Agent service receives the materials needed for its answer or visual analysis. Missing, oversized, or unsupported content is reported as a processing gap.
 - **Original evidence and statistics**: Answers can include citations to original chat messages. Click to preview the original text and surrounding context, then navigate to the corresponding chat. Message counts, date distributions, and speaker rankings are calculated by the program; confirmed values can be passed to a calculation tool. Model summaries and relationship inferences still need to be checked against the original messages.
 - **Follow-up questions and task control**: Conversation history is retained, with search, switching, renaming, and deletion. You can add instructions or stop processing while a task is running. The user can resume the latest unfinished task, reusing its existing state and materials.
 
@@ -156,7 +156,7 @@ Private-chat profiles analyze only the other person’s messages. For group chat
 
 Under **“Settings → AI services → Local retrieval”**, download and select a retrieval model, then click **“Enable and start indexing”**. The feature is disabled by default. Once enabled, it gradually indexes all chats in the current account in the background; pausing or restarting retains progress. Chat and date conditions in a question restrict that query, without changing the enabled account-wide index scope.
 
-Indexing and vector inference run locally. A CPU is sufficient, with optional NVIDIA acceleration. Disabling the feature retains the model and index; clearing the index does not delete chat records. Retrieval is limited by indexed materials and account permissions. **Local retrieval does not change the model service that the AI assistant uses to generate answers**.
+Indexing and vector inference run locally. A CPU is sufficient; optional NVIDIA CUDA and AMD DirectML are managed in **“Settings → Local acceleration”**, with verification for each model and device. See the [acceleration guide and measured results (Chinese)](docs/local-acceleration.md). Disabling the feature retains the model and index; clearing the index does not delete chat records. Retrieval is limited by indexed materials and account permissions. **Local retrieval does not change the model service that the AI assistant uses to generate answers**.
 
 ### Local speech-to-text
 
@@ -257,7 +257,7 @@ After preparing the dependencies above, build the current Windows x64 base packa
 npm --prefix desktop run dist
 ```
 
-This command generates icons, generates and copies static frontend resources, builds the Python backend, and then packages an NSIS installer and ZIP. The base package includes CPU speech runtime components, but not the PyTorch/Transformers components required by Qwen GPU. Model weights are not distributed with the package.
+This command generates icons, generates and copies static frontend resources, builds the Python backend, and then packages an NSIS installer and ZIP. The base build collects CPU speech runtime components and RapidOCR 3.10.0 CPU OCR components and weights, but not the PyTorch/Transformers components required by Qwen GPU. Laya, speech, and semantic retrieval weights still require separate preparation. The v1.3.0 build includes local OCR and optional AMD acceleration support; older packages do not acquire these features automatically.
 
 To include Qwen GPU runtime components, run these commands in order:
 
@@ -318,6 +318,7 @@ The following topic guides are in Chinese.
 | [Chat AI](docs/chat-ai.md) | Summaries, automatic tasks, follow-up alerts, and desktop notifications |
 | [Chat profiles and message labels](docs/chat-insights.md) | Laya/API, subject boundaries, label reuse, and quality limitations |
 | [Local semantic search](docs/local-semantic-search.md) | Models, indexes, devices, downloads, and offline import |
+| [Local acceleration](docs/local-acceleration.md) | CPU/CUDA/AMD DirectML settings, OCR, component isolation, and measured acceptance boundaries |
 | [AI diagnostics](docs/ai-diagnostics.md) | Model calls and troubleshooting |
 | [WeChat text sending](docs/wechat-qt-send.md) / [Attachment sending](docs/wechat-file-send.md) | Window adaptation, send confirmation, and attachment queues |
 | [Annual frames and export](docs/wrapped-frames.md) | Desktop scene screenshots and frame processing |

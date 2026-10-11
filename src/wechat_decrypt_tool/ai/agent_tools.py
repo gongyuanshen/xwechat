@@ -29,6 +29,33 @@ def local_request():
                     'scheme': 'http', 'server': ('127.0.0.1', 10392), 'client': ('127.0.0.1', 0), 'query_string': b''})
 
 
+LOCAL_ATTACHMENT_FIELDS = ('original_text', 'local_attachment_text', 'local_attachment_method', 'local_attachment_provenance')
+
+
+def attachment_message_signature(message):
+    """绑定本地提取结果的原消息版本；附件定位或原文变化后不能沿用旧识别文字。"""
+    result = {key: message.get(key) for key in ('identity', 'username', 'anchor', 'time', 'kind')}
+    result['text'] = message.get('original_text', message['text'])
+    media = message.get('media') or {}
+    result['media'] = {key: media.get(key) for key in
+        ('fileMd5', 'imageMd5', 'imageFileId', 'videoMd5', 'videoFileId', 'fileSize')}
+    return result
+
+
+def retain_local_attachment(current, previous):
+    """只给未变化的原消息补回结构化的本地派生证据。"""
+    provenance = previous.get('local_attachment_provenance')
+    if current.get('local_attachment_provenance') or not provenance:
+        return current
+    if provenance['message_signature'] != attachment_message_signature(current):
+        return current
+    from ..local_search.index import retrieval_text
+    value = {**current, **{key: previous[key] for key in LOCAL_ATTACHMENT_FIELDS}}
+    value['original_text'] = current['text']
+    value['text'] = retrieval_text(value)
+    return value
+
+
 def normalize(account, username, raw, name=''):
     # 全局命中必须使用消息本身的会话身份，不能把空筛选条件写入来源。
     username = raw.get('username') or raw.get('conversationUsername') or username
@@ -40,7 +67,7 @@ def normalize(account, username, raw, name=''):
     timestamp = int(raw.get('createTime') or raw.get('create_time') or 0)
     identity = message_identity(raw.get('serverIdStr') or raw.get('serverId') or raw.get('server_id'),
                                 anchor, timestamp, raw.get('type') or raw.get('local_type'))
-    return {'source': hashlib.sha256(f'{account}:{username}:{identity}'.encode()).hexdigest()[:24], 'identity': identity,
+    value = {'source': hashlib.sha256(f'{account}:{username}:{identity}'.encode()).hexdigest()[:24], 'identity': identity,
             'anchor': anchor, 'username': username, 'name': name or raw.get('conversationName') or username,
             'time': timestamp,
             'sender': raw.get('senderDisplayName') or raw.get('senderName') or raw.get('senderUsername') or '',
@@ -50,6 +77,19 @@ def normalize(account, username, raw, name=''):
                     '\n'.join(str(raw.get(k) or '') for k in ('content', 'title', 'quoteTitle', 'quoteContent', 'voiceTranscript') if raw.get(k)),
             'match_methods': [m for m in raw.get('matchMethods', []) if m in ('keyword', 'semantic')],
             'media': raw}
+    provenance = raw.get('localAttachmentProvenance')
+    if provenance is not None:
+        original, extracted = raw.get('originalAiText'), raw.get('localAttachmentText')
+        if not isinstance(provenance, dict) or not isinstance(original, str) or not isinstance(extracted, str):
+            raise ValueError('本地附件检索证据损坏')
+        value.update(original_text=original, local_attachment_text=extracted,
+                     local_attachment_method=provenance['extraction_method'], local_attachment_provenance=provenance)
+        if provenance['account'] != account or provenance['message_signature'] != attachment_message_signature(value):
+            raise ValueError('本地附件检索证据与原消息不一致')
+        from ..local_search.index import retrieval_text
+        if value['text'] != retrieval_text(value):
+            raise ValueError('本地附件检索文字与结构化来源不一致')
+    return value
 
 
 def group_people_directory(account, usernames, people):
@@ -327,4 +367,7 @@ class ChatTools:
         result = await get_chat_messages_around(local_request(), username=evidence['username'], anchor_id=evidence['anchor'],
                                                account=account, before=10, after=10, source='auto')
         values = [normalize(account, evidence['username'], x, evidence.get('name', '')) for x in result.get('messages', [])]
+        values = [retain_local_attachment(value, evidence)
+                  if value and value['username'] == evidence['username'] and value['anchor'] == evidence['anchor']
+                  else value for value in values]
         return {'messages': [x for x in values if x], 'warning': result.get('warning', ''), 'data_source': result.get('source', 'auto')}

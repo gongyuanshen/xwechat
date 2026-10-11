@@ -10,6 +10,8 @@ import json
 import math
 from pathlib import Path
 import threading
+import time
+import uuid
 
 import numpy as np
 
@@ -19,6 +21,14 @@ from .insight_local_models import SPEC
 QTYPES = {'choice': 0, 'score': 1, 'noul': 2}
 INPUT_TYPES = {'input_ids': 'tensor(int64)', 'attention_mask': 'tensor(int64)',
                'marker_pos': 'tensor(int64)', 'marker_mask': 'tensor(bool)', 'qtype': 'tensor(int64)'}
+_runtime_status = {'actual_device': None, 'active': False, 'reason': '', 'using_fallback': False}
+_runtime_status_lock = threading.Lock()
+
+
+def get_laya_runtime_status():
+    """Only successful inference records activity; never expose input or account data."""
+    with _runtime_status_lock:
+        return dict(_runtime_status)
 
 
 class LayaInputError(ValueError):
@@ -193,6 +203,7 @@ class LayaRuntime:
         self.model_dir = Path(model_dir)
         self._lock = threading.RLock()
         self._session = None
+        self._runtime_id = uuid.uuid4().hex
 
     def _load(self):
         if self._session is not None:
@@ -236,6 +247,7 @@ class LayaRuntime:
         self._config, self._tokenizer, self._special, self._session = config, tokenizer, special, session
 
     def predict(self, state: str, questions: dict) -> dict:
+        global _runtime_status
         with self._lock:
             self._load()
             items, internal = prepare(self._tokenizer, self._special, self._config, state, questions)
@@ -245,8 +257,16 @@ class LayaRuntime:
                 logits, act_logits = self._session.run(['logits', 'act_logits'], collate(chunk, self._special['pad']))
                 answers.update(format_answers(self._config, qids[start:start + 8], internal[start:start + 8], chunk,
                                               logits, act_logits))
+            with _runtime_status_lock:
+                _runtime_status = {'actual_device': 'cpu', 'device_name': 'CPU', 'active': True,
+                                   'model': SPEC['id'], 'model_revision': SPEC['revision'],
+                                   'runtime_id': self._runtime_id, 'updated': time.time(),
+                                   'using_fallback': False, 'reason': ''}
             return answers
 
     def close(self):
         with self._lock:
             self._session = None
+            with _runtime_status_lock:
+                if _runtime_status.get('runtime_id') == self._runtime_id:
+                    _runtime_status['active'] = False

@@ -104,6 +104,8 @@ from .routers.attachments import router as _attachments_router
 app.include_router(_attachments_router)
 from .routers.local_search import router as _local_search_router
 app.include_router(_local_search_router)
+from .routers.local_acceleration import router as _local_acceleration_router
+app.include_router(_local_acceleration_router)
 from .routers.storage import router as _storage_router
 app.include_router(_storage_router)
 app.include_router(_health_router)

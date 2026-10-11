@@ -16,14 +16,14 @@ from ..account_workers import account_to_thread
 from ..snapshot_registry import account_work, create_account_task, SnapshotRegistryError
 from .catalog import model_dir, model_spec
 from .downloads import ModelDownloads
-from .index import SemanticIndex, LiteralIndexNotReady, make_chunks, fuse
+from .index import SemanticIndex, LiteralIndexNotReady, make_chunks, fuse, retrieval_text
 from .inference import LocalInference, InferenceFailure
 from .progressive import ProgressiveIndex, reading_segments, committed_coverage, coverage_complete
 from .totals import MessageTotals
 
 
 DEFAULTS = {'enabled': False, 'model': None, 'usernames': [], 'days': 90,
-            'start': None, 'end': None, 'device': 'auto', 'device_id': 0, 'auto_update': True,
+            'start': None, 'end': None, 'device': 'auto', 'device_id': 0, 'device_identity': None, 'auto_update': True,
             'read_batch_size': 0, 'agent_global': False}
 
 # 进度事件里体积大且很少变化、或可从权威记录重建的字段，不随每次进度写入事件表。
@@ -36,14 +36,34 @@ class RetrievalFailure(RuntimeError):
         self.code, self.status_code, self.coverage = code, status_code, coverage
 
 
+def validate_device_config(cfg):
+    if cfg['device'] not in {'auto', 'cpu', 'cuda', 'dml'}:
+        raise ValueError('检索设备配置无效')
+    if type(cfg['device_id']) is not int or not 0 <= cfg['device_id'] <= 32:
+        raise ValueError('检索 CUDA 设备序号无效')
+    identity = cfg['device_identity']
+    if identity is not None and (not isinstance(identity, str) or not identity.strip()):
+        raise ValueError('检索设备身份配置无效')
+    if cfg['device'] == 'dml' and identity is None:
+        raise ValueError('DirectML 必须指定设备身份')
+    if cfg['device'] in {'auto', 'cpu'} and identity is not None:
+        raise ValueError('自动或 CPU 模式不能指定 GPU 设备身份')
+
+
 class LocalSearch(ProgressiveIndex, MessageTotals):
     def __init__(self, root=None, model_root=None, reader=None, engine=None):
         self.root = Path(root or get_output_dir() / 'local_search')
         self.store = AIStore(self.root)
-        self.engine = engine or LocalInference(callback=lambda status: self.store.event('', 'local_search_device', status, unique_key='local_search_device', replace=True))
+        self.engine = engine or LocalInference(callback=lambda status: self.store.event(status.get('account', ''), 'local_search_device', status,
+            unique_key='local_search_device:' + status.get('account', ''), replace=True))
         self.downloads = ModelDownloads(model_root or get_data_dir() / 'local_search_models', self.store, self.engine)
         from .gpu import GPUComponent
         self.gpu = GPUComponent(self.downloads.root.parent / 'local_search_gpu', self.store, self.engine)
+        self.dml = GPUComponent(self.downloads.root.parent / 'local_search_gpu', self.store, backend='dml')
+        from ..local_acceleration import LocalAcceleration
+        self.acceleration = LocalAcceleration(self.store, {'cuda': self.gpu, 'dml': self.dml})
+        if isinstance(self.engine, LocalInference):
+            self.engine.acceleration = self.acceleration
         self.reader = reader
         self.jobs, self.cancelled, self.revoked, self.queries = {}, set(), set(), {}
         self.fts_jobs, self.fts_cancelled = {}, set()
@@ -54,7 +74,12 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
         self.loop_task = None
 
     def config(self, account):
-        return {**DEFAULTS, **(self.store.get('config', account) or {}), 'account': account}
+        saved = self.store.get('config', account)
+        if saved is not None and not isinstance(saved, dict):
+            raise ValueError('检索配置损坏')
+        cfg = {**DEFAULTS, **(saved if saved is not None else {}), 'account': account}
+        validate_device_config(cfg)
+        return cfg
 
     def index(self, account):
         safe = hashlib.sha256(account.encode()).hexdigest()
@@ -64,9 +89,10 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
         event_cursor = self.store.latest_event_id()
         cfg = self.config(account) if account else None
         jobs = self.store.list('index_job', account, limit=5) if account else []
-        result = {'config': cfg, 'models': self.downloads.models(), 'device': self.engine.status, 'jobs': jobs, 'event_cursor': event_cursor,
+        device = self.acceleration.runtime_status('search', account, model_spec(cfg['model'])) if cfg and cfg['model'] else {'actual_device': None, 'using_fallback': False, 'reason': ''}
+        result = {'config': cfg, 'models': self.downloads.models(), 'device': device, 'jobs': jobs, 'event_cursor': event_cursor,
                   'message_total': self.store.get('index_message_total', jobs[0]['id']) if jobs else None,
-                  'gpu': {**self.gpu.status(), 'failed': self.engine.gpu_failed}, 'audit': self.store.list('local_usage', account, limit=20) if account else []}
+                  'gpu': {**self.acceleration.component_statuses()['cuda'], 'failed': self.engine.gpu_failed}, 'audit': self.store.list('local_usage', account, limit=20) if account else []}
         if account:
             index = self.index(account)
             result['index_bytes'] = index.path.stat().st_size
@@ -137,6 +163,7 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
         self.store.revoked_accounts.discard(account)
         old = self.config(account)
         cfg = {**old, **values, 'account': account}
+        validate_device_config(cfg)
         if cfg['model'] is not None: model_spec(cfg['model'])
         if cfg['enabled'] and not self.downloads.available(cfg['model']):
             raise ValueError('请先下载并选择可用的本地模型')
@@ -166,6 +193,9 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
         stopped_migration = self.store.get('fts_migration', account) or {}
         self.start_fts_migration(account, resume=migration.get('status') not in {'paused', 'error'}
                                  and stopped_migration.get('status') != 'error')
+        self.store.event(account, 'local_search_settings',
+                         {'account': account, 'model': cfg['model'], 'revision': cfg['revision']},
+                         unique_key='local_search_settings:' + account, replace=True)
         return cfg
 
     def update(self, job, **changes):
@@ -194,15 +224,38 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
 
     def local_text(self, account, messages):
         import sqlite3, json
+        from ..ai.agent_tools import attachment_message_signature
         path = get_output_dir() / 'ai' / 'ai.sqlite3'
         if not path.exists(): return
         with sqlite3.connect(f'file:{path.as_posix()}?mode=ro', uri=True) as db:
             for m in messages:
-                if m['kind'] != 'file': continue
+                if m['kind'] not in {'file', 'image'}: continue
                 id = hashlib.sha256(f"{account}:{m['username']}:{m['anchor']}".encode()).hexdigest()
                 row = db.execute("SELECT body FROM records WHERE kind='local_media_text' AND id=? AND account=?", (id,account)).fetchone()
                 if row:
-                    m['local_attachment_text'] = json.loads(row[0])['text']
+                    cached = json.loads(row[0])
+                    if not isinstance(cached, dict) or not isinstance(cached.get('text'), str):
+                        raise ValueError('附件正文缓存损坏')
+                    # 历史 local_media_text 只保存本地文档解析文字，未写入视觉描述。
+                    method = cached.get('extraction_method', 'document_text')
+                    if method not in {'document_text', 'local_ocr'} or (m['kind'] == 'image' and method != 'local_ocr'):
+                        raise ValueError(f'附件正文缓存来源无效：{method}')
+                    signature = cached.get('message_signature')
+                    if method == 'local_ocr' and not isinstance(signature, dict):
+                        raise ValueError('本地 OCR 缓存缺少原消息身份')
+                    if signature is not None and not isinstance(signature, dict):
+                        raise ValueError('附件正文缓存原消息身份损坏')
+                    current_signature = attachment_message_signature(m)
+                    if signature is not None and signature != current_signature:
+                        diagnostic_event('search.local_text.invalidated', account=account, username=m['username'], anchor=m['anchor'])
+                        continue
+                    m['local_attachment_text'] = cached['text']
+                    m['local_attachment_method'] = method
+                    m['local_attachment_provenance'] = {'account': account, 'message_signature': current_signature,
+                        'extraction_method': method, 'file_hash': cached['file_hash'], 'version': cached['version'],
+                        'complete': cached.get('complete') is True, 'status': cached.get('status', 'partial')}
+                    if method == 'local_ocr':
+                        m['local_attachment_provenance'].update(ocr_units=cached['ocr_units'], ocr_engine=cached['ocr_engine'])
 
     @observed('search.build', id_field='task_id')
     async def build(self, account, rebuild=False, incremental=True):
@@ -370,6 +423,8 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
                 if cancelled(): raise InferenceFailure('任务已暂停', 'cancelled')
             async with self.queue_lock:
                 try:
+                    if cfg['device'] != 'cpu' and self.acceleration.detection_task is not None:
+                        await self.acceleration.detection_task
                     check()
                     from tokenizers import Tokenizer
                     spec = model_spec(cfg['model'])
@@ -430,16 +485,8 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
                                     check()
                                     await self.yield_to_queries(check)
                                     batch = chunks[batch_start:batch_start + 8]
-                                    strategy = cfg['device']
-                                    # 语音任务占用显卡时，本地索引主动让出。
-                                    try:
-                                        from ..voice_transcription import _VOICE_MODEL_ACTIVITY
-                                        if any(_VOICE_MODEL_ACTIVITY.values()): strategy = 'cpu'
-                                    except ImportError:
-                                        pass
-                                    diagnostic_event('index.batch.started', index=batch_start, batch_size=len(batch), strategy=strategy,
-                                                     reason_code='voice_priority' if strategy!=cfg['device'] else 'configured')
-                                    values = await account_to_thread(account_dir, self.engine.encode, root, spec, [c['text'] for c in batch], strategy, cfg['device_id'], False, cancelled)
+                                    diagnostic_event('index.batch.started', index=batch_start, batch_size=len(batch), strategy=cfg['device'], reason_code='configured')
+                                    values = await account_to_thread(account_dir, self.engine.encode, root, spec, [c['text'] for c in batch], cfg['device'], cfg['device_id'], False, cancelled, cfg.get('device_identity'), account)
                                     diagnostic_event('index.batch.finished', index=batch_start, count=len(values), actual_device=self.engine.status.get('actual_device'))
                                     vectors.extend(values)
                                     if len(vectors) == len(chunks) or time.monotonic() - last_embedding_update >= 0.25:
@@ -499,7 +546,8 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
                     if account in self.revoked:
                         await account_to_thread(account_dir, self.clear_message_plans, account)
                     self.store.put('local_usage', {'kind': 'index', 'account': account, 'model': cfg['model'], 'status':job['status'],
-                        'messages': job['processed'], 'chunks': job['embedded'], 'seconds': time.time()-job['started'], **self.engine.status},id=job['id'],account=account)
+                        'messages': job['processed'], 'chunks': job['embedded'], 'seconds': time.time()-job['started'],
+                        **self.acceleration.runtime_status('search', account, model_spec(cfg['model']))},id=job['id'],account=account)
 
     @observed('search.hybrid', id_field='task_id')
     async def hybrid(self, account, keyword, q, usernames, start=None, end=None, sender=None, kinds=None, offset=0, limit=50, ticket=None, strict_paging=False, paging_context=None):
@@ -548,24 +596,34 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
                 query_start, query_end = max(start or 0, scope_start), min(end if end is not None else 2**53, cfg['end'] if cfg['end'] is not None else 2**53)
                 index = await account_to_thread(account_dir, self.index, account)
                 def as_hit(m):
-                    return {**m.get('media', {}), 'id': m['anchor'], 'anchorId': m['anchor'], 'username': m['username'],
+                    text = retrieval_text(m)
+                    hit = {**m.get('media', {}), 'id': m['anchor'], 'anchorId': m['anchor'], 'username': m['username'],
                             'conversationName': m.get('name', m['username']), 'senderDisplayName': m['sender'],
                             'senderUsername': m.get('sender_id', m['sender']), 'createTime': m['time'],
                             # 索引正文已经包含标题、引用和转写；AI 适配器不能再次拼接这些字段。
-                            'content': m['text'], 'aiText': m['text'], 'snippet': m['text'], 'renderType': m['kind']}
+                            'content': m['text'], 'aiText': text, 'snippet': text, 'renderType': m['kind']}
+                    if m.get('local_attachment_provenance'):
+                        hit.update(originalAiText=m['text'], localAttachmentText=m['local_attachment_text'],
+                                   localAttachmentProvenance=m['local_attachment_provenance'])
+                    return hit
                 literal = await account_to_thread(account_dir, index.keyword, active['generation'], q, sorted(allowed), query_start, query_end, sender, kinds, 200)
                 # 渐进索引里的新消息可能尚未进入旧全文索引，原文命中必须独立于向量召回。
                 committed_keyword_hits = [as_hit(m) for m in literal]
                 keyword = {**keyword, 'hits': fuse([*committed_keyword_hits, *keyword.get('hits', [])], [])}
                 spec = model_spec(active['model'])
                 root = model_dir(self.downloads.root, active['model'])
-                vectors = await account_to_thread(account_dir, self.engine.encode, root, spec, [q], cfg['device'], cfg['device_id'], True)
+                def query_cancelled():
+                    return account in self.revoked or self.config(account).get('revision') != cfg.get('revision')
+                vectors = await account_to_thread(account_dir, self.engine.encode, root, spec, [q], cfg['device'], cfg['device_id'], True, query_cancelled, cfg.get('device_identity'), account)
+                if query_cancelled():
+                    raise InferenceFailure('检索配置已改变，当前查询已停止', 'cancelled')
+                device_status = self.acceleration.runtime_status('search', account, spec)
                 rows = await account_to_thread(account_dir, index.search, active['generation'], vectors[0], sorted(allowed), query_start, query_end, sender, kinds, 200)
                 semantic = [as_hit(row['message']) for row in rows]
                 # 同一片段内的消息共享向量分数；直接匹配原文的消息应先于相邻闲聊。
                 needle = q.strip().casefold()
                 if needle:
-                    semantic.sort(key=lambda hit: needle not in hit['content'].casefold())
+                    semantic.sort(key=lambda hit: needle not in hit['aiText'].casefold())
                 hits = fuse(keyword.get('hits', []), semantic)
                 diagnostic_event('search.recall.finished', keyword_count=len(keyword.get('hits',[])), semantic_count=len(semantic), returned=len(hits), actual_device=self.engine.status.get('actual_device'))
                 coverage = {'message': '语义结果来自已建立的本地索引；新消息、未解析图片和范围外历史可能尚未覆盖。',
@@ -575,12 +633,14 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
                 ticket = uuid.uuid4().hex
                 response = {**keyword, 'retrievalMode': 'hybrid', 'requestedRetrievalMode': 'hybrid',
                             'offset': offset, 'limit': limit, 'coverage': coverage, 'total': len(hits), 'searchTicket': ticket,
-                            'device': self.engine.status, 'status': 'success', 'resetSearch':reset_search}
+                            'device': device_status, 'status': 'success', 'resetSearch':reset_search}
+                if query_cancelled():
+                    raise InferenceFailure('检索配置已改变，当前查询已停止', 'cancelled')
                 self.queries = {k:v for k,v in self.queries.items() if v['expires'] > time.time()}
                 if len(self.queries) >= 32: self.queries.pop(next(iter(self.queries)))
                 self.queries[ticket] = {'key': key, 'response': response, 'hits': hits, 'expires': time.time()+600}
                 self.store.put('local_usage', {'kind':'search','account':account,'model':active['model'],'candidates':len(hits),
-                    'seconds':time.monotonic()-began,**self.engine.status}, account=account)
+                    'seconds':time.monotonic()-began,**device_status}, account=account)
                 return {**response, 'hits': hits[offset:offset+limit], 'hasMore': offset+limit<len(hits)}
             except SnapshotRegistryError:
                 raise
@@ -592,12 +652,13 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
                     raise RetrievalFailure('字面索引升级已暂停，请恢复索引任务继续升级', 'literal_index_paused', 409, error.coverage) from error
                 raise RetrievalFailure(str(error), error.code, 409, error.coverage) from error
             except Exception as error:
-                diagnostic_event('search.retrieval.failed' if strict_paging else 'search.keyword.fallback',
-                    level=logging.ERROR if strict_paging else logging.WARNING, error=error, reason_code='semantic_failed')
+                must_stop = strict_paging or cfg['device'] in {'cuda', 'dml'} or (isinstance(error, InferenceFailure) and error.category == 'cancelled')
+                diagnostic_event('search.retrieval.failed' if must_stop else 'search.keyword.fallback',
+                    level=logging.ERROR if must_stop else logging.WARNING, error=error, reason_code='semantic_failed')
                 self.store.put('local_usage',{'kind':'search','account':account,'model':active.get('model'),'status':'error',
-                    'seconds':time.monotonic()-began,'error_type':type(error).__name__,**self.engine.status},account=account)
-                if strict_paging:
-                    raise RetrievalFailure('本地混合检索失败，请检查索引或模型后重试', 'semantic_search_failed') from error
+                    'seconds':time.monotonic()-began,'error_type':type(error).__name__},account=account)
+                if must_stop:
+                    raise RetrievalFailure(f'本地混合检索失败：{error}', 'semantic_search_failed') from error
                 # 旧全文结果已经按 offset 分页，不能再对它重复切片。
                 fallback_hits = fuse([*committed_keyword_hits[offset:offset+limit], *snapshot_keyword.get('hits', [])], [])
                 return {**keyword, 'hits': fallback_hits[:limit],
@@ -637,6 +698,8 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
 
     @observed('search.start', id_field='task_id')
     async def start(self):
+        self.acceleration.stopping = False
+        self.acceleration.start_detection(False)
         for cfg in self.store.list('config'):
             migration = self.store.get('fts_migration', cfg['account']) or {}
             self.start_fts_migration(cfg['account'], resume=bool(migration.get('resume_on_start')))
@@ -650,8 +713,11 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
                     self.update(job, status='paused', error='配置已改变，请按当前范围重新建立索引')
         for job in self.store.list('download'):
             if job['status'] in {'queued','running'} or job.get('resume_on_start'): await self.downloads.start(job['id'])
-        gpu_job = self.store.get('gpu_component','global') or {}
-        if gpu_job.get('status') in {'queued','running'} or gpu_job.get('resume_on_start'): await self.gpu.start()
+        for component in (self.gpu, self.dml):
+            gpu_job = self.store.get('gpu_component',component.job_id) or {}
+            if gpu_job.get('status') in {'queued','running'} or gpu_job.get('resume_on_start'):
+                from ..local_acceleration import start_component
+                await start_component(self, component.backend, account=gpu_job.get('validation_account'))
         self.loop_task = asyncio.create_task(self.schedule())
 
     async def schedule(self):
@@ -701,9 +767,11 @@ class LocalSearch(ProgressiveIndex, MessageTotals):
         for id in downloading:
             job=self.store.get('download',id)
             if job: self.downloads.update(job,resume_on_start=True)
-        gpu_running=self.gpu.task and not self.gpu.task.done()
-        await self.gpu.pause()
-        if gpu_running: self.gpu.update(resume_on_start=True)
+        for component in (self.gpu, self.dml):
+            gpu_running=component.task and not component.task.done()
+            await component.pause()
+            if gpu_running: component.update(resume_on_start=True)
+        await self.acceleration.stop()
         self.engine.close()
 
 

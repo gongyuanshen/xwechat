@@ -14,6 +14,7 @@
       <h2 id="library-save-title">保存到本地资料夹</h2>
       <p v-if="item?.kind === 'attachment'">复制附件文件并保存来源；原文件不可用时会提示失败。</p>
       <p v-else-if="item?.kind === 'message'">保存消息原文与来源，不包含附件文件。要保留附件，请选择“保存附件副本到资料夹”。</p>
+      <p v-else-if="item?.kind === 'extracted_text'">保存已识别或提取的全文与出处，不包含附件文件。识别结果请核对原图或原文档。</p>
       <p v-else>保存报告副本和来源信息，不修改原始回答。</p>
       <p v-if="item?.kind === 'attachment'">图片保存本机当前可读取的版本，可能是缩略图，不保证原图。</p>
       <p v-if="error" role="alert" class="library-error">{{ error }}</p>
@@ -60,7 +61,7 @@
           type="submit"
           :disabled="loading || busy || !folderId || !account"
         >
-          {{ busy ? "正在保存…" : item?.kind === 'attachment' ? "保存附件副本" : "保存副本" }}
+          {{ busy ? "正在保存…" : item?.kind === 'attachment' ? "保存附件副本" : item?.kind === 'extracted_text' ? "保存文字" : "保存副本" }}
         </button>
       </footer>
     </form>

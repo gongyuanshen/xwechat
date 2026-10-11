@@ -284,11 +284,11 @@ it('切换账号清空草稿和提示，不把旧任务提交到新账号',async
   expect(request.mock.calls.some(([p])=>p.includes('/index/build'))).toBe(false)
 })
 
-it('高级设置只保存设备偏好，不提交尚未确认的聊天草稿',async()=>{
+it('高级设置保存批量偏好，不提交尚未确认的聊天草稿',async()=>{
   ready();config.usernames=[];await open();await selectScope()
-  await button('CPU').trigger('click');await flushPromises()
+  await button('保存高级设置').trigger('click');await flushPromises()
   const saved=request.mock.calls.find(([p])=>p.includes('/settings'))[1].body
-  expect(saved).toMatchObject({usernames:[],device:'cpu',enabled:false})
+  expect(saved).toMatchObject({usernames:[],device:'auto',enabled:false})
   expect(wrapper.text()).toContain('已选择 1 个聊天')
 })
 
@@ -403,47 +403,12 @@ it('账号切换关闭分类选择，重新打开不带入上个账号的草稿'
 })
 
 
-it.each([
-  ['queued','paused','等待下载…'],
-  ['running','downloading','正在下载…'],
-  ['running','retry_wait','等待重试…'],
-  ['running','verifying','正在校验…'],
-  ['running','installing','正在安装…'],
-])('组件 %s / %s 期间禁止重复下载和离线导入',async(status,stage,label)=>{
-  gpu.job={status,stage,bytes:50,total:1000}
+it('设备和组件操作统一打开本地加速，不调用旧硬件探测或组件接口',async()=>{
   await open()
-  expect(button(label).attributes('disabled')).toBeDefined()
-  expect(button('离线导入').attributes('disabled')).toBeDefined()
-  await button(label).trigger('click');await button('离线导入').trigger('click')
-  expect(request.mock.calls.some(([,o])=>o?.method)).toBe(false)
-  expect(button('暂停').attributes('disabled')).toBeUndefined()
-})
-it('组件提交和暂停期间锁定操作，暂停后可继续且失败后可重试',async()=>{
-  await open()
-  const previous=request.getMockImplementation()
-  let finish
-  request.mockImplementation((p,o)=>p.endsWith('/gpu/download') ? new Promise(resolve=>{finish=()=>{gpu={...gpu,job:{status:'queued'}};resolve(gpu)}}) : previous(p,o))
-  const download=button('下载加速组件')
-  await download.trigger('click');await download.trigger('click')
-  expect(button('正在提交…').attributes('disabled')).toBeDefined()
-  expect(request.mock.calls.filter(([p])=>p.endsWith('/gpu/download'))).toHaveLength(1)
-  finish();await flushPromises()
-  expect(button('等待下载…').attributes('disabled')).toBeDefined()
-  request.mockImplementation((p,o)=>p.endsWith('/gpu/pause') ? new Promise(resolve=>{finish=()=>{gpu={...gpu,job:{status:'paused'}};resolve(gpu)}}) : previous(p,o))
-  const pause=button('暂停');await pause.trigger('click');await pause.trigger('click')
-  expect(button('正在暂停…').attributes('disabled')).toBeDefined()
-  expect(request.mock.calls.filter(([p])=>p.endsWith('/gpu/pause'))).toHaveLength(1)
-  finish();await flushPromises()
-  expect(button('继续下载组件').attributes('disabled')).toBeUndefined()
-  expect(button('离线导入').attributes('disabled')).toBeUndefined()
-})
-it('组件失败可重试，提交失败不会永久锁住按钮',async()=>{
-  gpu.job={status:'error',error:'网络不可用'};await open()
-  const previous=request.getMockImplementation()
-  request.mockImplementation((p,o)=>p.endsWith('/gpu/download') ? Promise.reject(new Error('网络不可用')) : previous(p,o))
-  await button('重试下载组件').trigger('click');await flushPromises()
-  expect(button('重试下载组件').attributes('disabled')).toBeUndefined()
-  expect(wrapper.find('[role=alert]').text()).toContain('网络不可用')
+  await button('管理本地加速').trigger('click')
+  expect(wrapper.emitted('manage-acceleration')).toHaveLength(1)
+  expect(request.mock.calls.some(([path])=>path.includes('/gpu/') || path.includes('/device/'))).toBe(false)
+  expect(wrapper.text()).toContain('尚未运行')
 })
 it('模型下载期间禁止离线导入，暂停请求中禁止再次暂停和关闭弹窗',async()=>{
   models[0].job={status:'running',stage:'downloading'};await open()

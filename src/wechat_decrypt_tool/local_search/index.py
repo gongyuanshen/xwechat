@@ -22,6 +22,19 @@ def _literal_token_text(text):
     return ' '.join(f'x{ord(char):x}' for char in text.lower())
 
 
+def retrieval_text(message):
+    """原消息与本地派生文字分开标注，供字面、向量及 Agent 共用。"""
+    extracted = message.get('local_attachment_text', '')
+    original = message.get('original_text', message['text'])
+    if not extracted:
+        return original
+    method = message.get('local_attachment_method', 'document_text')
+    labels = {'document_text': '本地文档提取文字', 'local_ocr': '本地 OCR 识别文字'}
+    if method not in labels:
+        raise ValueError(f'附件检索文字来源无效：{method}')
+    return '\n'.join((original, f'[{labels[method]}]', extracted)).strip()
+
+
 class SemanticIndex:
     def __init__(self, path):
         self.path = Path(path)
@@ -44,6 +57,10 @@ class SemanticIndex:
             if not db.execute("SELECT 1 FROM sqlite_master WHERE name='messages_fts'").fetchone():
                 db.execute("CREATE VIRTUAL TABLE messages_fts USING fts5(tokens, tokenize='ascii')")
                 db.execute('INSERT INTO fts_migration SELECT DISTINCT generation,NULL,0 FROM messages')
+            if db.execute('PRAGMA user_version').fetchone()[0] < 1:
+                # 旧 FTS 只包含原消息正文；复用逐批迁移，不重算已有向量。
+                db.execute('INSERT OR REPLACE INTO fts_migration SELECT DISTINCT generation,NULL,0 FROM messages')
+                db.execute('PRAGMA user_version=1')
 
     @contextmanager
     def connection(self):
@@ -114,7 +131,7 @@ class SemanticIndex:
                 if checkpoint and position % 100 == 0: checkpoint()
                 message = json.loads(row['body'])
                 db.execute('INSERT OR REPLACE INTO messages_fts(rowid,tokens) VALUES(?,?)',
-                           (row['rowid'], _literal_token_text(message['text'])))
+                           (row['rowid'], _literal_token_text(retrieval_text(message))))
             if checkpoint: checkpoint()
             db.execute('UPDATE fts_migration SET source=?,complete=? WHERE generation=?',
                        (batch[-1]['source'] if batch else source, len(rows) <= batch_size, generation))
@@ -145,7 +162,7 @@ class SemanticIndex:
                     (generation, source, message['username'], message.get('sender_id', message['sender']), message['time'], message['kind'], body))
                 rowid = db.execute('SELECT rowid FROM messages WHERE generation=? AND source=?', (generation, source)).fetchone()[0]
                 db.execute('INSERT OR REPLACE INTO messages_fts(rowid,tokens) VALUES(?,?)',
-                           (rowid, _literal_token_text(message['text'])))
+                           (rowid, _literal_token_text(retrieval_text(message))))
             for position, (chunk, vector) in enumerate(zip(chunks, vectors)):
                 if checkpoint and position % 100 == 0: checkpoint()
                 id = hashlib.sha256((generation + chunk['text'] + ','.join(chunk['sources'])).encode()).hexdigest()
@@ -181,7 +198,7 @@ class SemanticIndex:
         if not usernames or not tokens or limit <= 0:
             return []
         clauses = ['m.generation=?', 'm.username IN (' + ','.join('?' for _ in usernames) + ')',
-                   'm.created>=?', 'm.created<=?', "message_matches(json_extract(m.body,'$.text'))"]
+                   'm.created>=?', 'm.created<=?', 'message_matches(m.body)']
         params = [generation, *usernames, start if start is not None else 0, end if end is not None else 2**53]
         if sender:
             clauses.append('m.sender=?'); params.append(sender)
@@ -193,7 +210,7 @@ class SemanticIndex:
             if not coverage['complete']:
                 raise LiteralIndexNotReady(coverage)
             # 与基础搜索共用 Unicode 大小写和多词匹配语义，查询文本从不拼入 SQL。
-            db.create_function('message_matches', 1, lambda text: _match_tokens(text, tokens), deterministic=True)
+            db.create_function('message_matches', 1, lambda body: _match_tokens(retrieval_text(json.loads(body)), tokens), deterministic=True)
             phrase = ' AND '.join('"' + _literal_token_text(token) + '"' for token in tokens)
             # 固定从 FTS 候选查 rowid，过滤和字面复核完成后才取上限。
             rows = db.execute('SELECT m.body FROM messages_fts CROSS JOIN messages m ON m.rowid=messages_fts.rowid'
@@ -295,7 +312,7 @@ def make_chunks(messages, tokenizer, max_tokens=384, overlap=64):
             if start+max_tokens>=len(tokens): break
         tokens,owners=[],[]
     for message in messages:
-        text = '\n'.join(filter(None,[message.get('text',''),message.get('local_attachment_text','')])).strip()
+        text = retrieval_text(message).strip()
         if not text: continue
         if username and (username != message['username'] or message['time'] - last_time > 600): flush()
         username, last_time = message['username'], message['time']

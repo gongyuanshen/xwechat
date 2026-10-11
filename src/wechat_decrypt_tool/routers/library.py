@@ -94,19 +94,24 @@ class Source(Input):
 
 class Item(Input):
     folder_id: str = Field(min_length=1)
-    kind: Literal['message', 'report', 'attachment']
+    kind: Literal['message', 'report', 'attachment', 'extracted_text']
     title: str = Field(default='', max_length=200)
     notes: str = ''
     tags: list[str] = Field(default_factory=list, max_length=100)
     source: Source | None = None
     run_id: str | None = None
+    cache_token: str | None = Field(default=None, pattern='^[0-9a-f]{64}$')
 
     @model_validator(mode='after')
     def provenance(self):
-        if self.kind in {'message', 'attachment'} and (self.source is None or self.run_id is not None):
+        if self.kind in {'message', 'attachment', 'extracted_text'} and (self.source is None or self.run_id is not None):
             raise ValueError('消息资料必须提供来源')
         if self.kind == 'report' and (not self.run_id or self.source is not None):
             raise ValueError('报告资料必须提供任务编号')
+        if self.kind == 'extracted_text' and self.cache_token is None:
+            raise ValueError('提取文字资料必须提供当前缓存版本')
+        if self.kind != 'extracted_text' and self.cache_token is not None:
+            raise ValueError('只有提取文字资料能提供缓存版本')
         return self
 
 
@@ -197,7 +202,7 @@ def get_item(id: str, account: str):
 async def create_item(body: Item, account: str, request: Request):
     owner = account_name(account)
     svc = service()
-    if body.kind == 'attachment':
+    if body.kind in {'attachment', 'extracted_text'}:
         from ..attachment_service import authoritative_message, resolve_attachment
         account_dir = _resolve_account_dir(owner)
         with account_work(account_dir):
@@ -206,6 +211,11 @@ async def create_item(body: Item, account: str, request: Request):
                       'sender': message['senderUsername'], 'create_time': message['createTime'], 'render_type': message['renderType']}
             if any(value is not None and value != source[key] for key, value in body.source.model_dump().items() if key not in ('anchor', 'username')):
                 raise HTTPException(422, '附件内容或身份与原始记录不一致')
+            if body.kind == 'extracted_text':
+                return await account_to_thread(account_dir, svc.create_extracted_text, owner, {
+                    'folder_id': body.folder_id, 'kind': 'extracted_text', 'title': body.title,
+                    'notes': body.notes, 'tags': body.tags, 'verified': False, 'user_edited': False,
+                    'source': source, 'report': None}, message, body.cache_token)
             resolved = await resolve_attachment(request, owner, body.source.username, message)
             return await account_to_thread(account_dir, svc.create_attachment, owner, {
                 'folder_id': body.folder_id, 'kind': 'attachment', 'title': body.title or resolved['name'],
@@ -291,6 +301,17 @@ def export_item(id: str, account: str, format: Literal['markdown', 'html'] = 'ma
     if item['kind'] == 'attachment':
         attachment = item['attachment']
         sections += [('附件副本', f"文件名：{attachment['name']}\n大小：{attachment['size']} 字节\nSHA-256：{attachment['sha256']}\n{attachment['preservation_note']}\n附件实体请在资料夹中单独下载；本文档未嵌入文件。")]
+    if item['kind'] == 'extracted_text':
+        extraction = item['extraction']
+        is_ocr = extraction['extraction_method'] == 'local_ocr'
+        metadata = [f"提取方式：{'本地 OCR' if is_ocr else '本地文档正文提取'}",
+                    f"缓存时间：{datetime.fromtimestamp(extraction['updated'], timezone.utc).isoformat()}",
+                    f"输入文件 SHA-256：{extraction['file_hash']}", f"缓存版本：{extraction['version']}",
+                    f"结果标识：{extraction['cache_token']}", '保存的是完整提取文字副本，未包含附件实体。']
+        if is_ocr:
+            metadata += [f"OCR 引擎：{extraction['ocr_engine']}", f"识别页 / 图片数：{extraction['ocr_units']}",
+                         'OCR 文字可能有误，请核对原图；图片来源可能是缩略图。']
+        sections += [('本地提取来源', '\n'.join(metadata))]
     if item.get('user_edited'):
         sections += [('编辑说明', '当前内容已由用户编辑；原始分析回答保留在下方。')]
     if item['source'] is not None:

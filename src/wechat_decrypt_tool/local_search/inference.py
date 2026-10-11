@@ -1,4 +1,4 @@
-"""隔离推理进程：CUDA 故障后销毁进程，再用 CPU 重放未提交批次。"""
+"""隔离推理进程；仅自动模式的明确 GPU 故障可重放当前未提交批次。"""
 from ..ai.diagnostics import observed, event as diagnostic_event
 import logging
 import json
@@ -10,6 +10,10 @@ import tempfile
 import threading
 import time
 from ..ai.diagnostics import exception_fields
+from ..local_acceleration_runtime import AccelerationError, GPU_FAILURES, failure_category
+
+VALIDATION_TEXTS = ['项目进度延期，改为下周二交付。', '周末一起吃饭，周六下午六点见。', '发票编号 20261011，金额 128.50 元。']
+VALIDATION_QUERIES = ['项目什么时候交付？', '周末聚餐的时间？', '发票金额是多少？']
 
 
 class InferenceFailure(RuntimeError):
@@ -18,7 +22,7 @@ class InferenceFailure(RuntimeError):
         self.category = category
 
 
-def inference_worker(pipe, root, spec, device, device_id, gpu_root):
+def inference_worker(pipe, root, spec, device, device_id, gpu_root, device_identity=None, expected_driver=None):
     # 子进程只经 Pipe 回传元数据，由父进程统一落盘。
     logging.disable(logging.CRITICAL)
     try:
@@ -26,41 +30,35 @@ def inference_worker(pipe, root, spec, device, device_id, gpu_root):
         from .catalog import verify_model
         try: verify_model(root,spec,report=lambda name, fields:pipe.send({'diagnostic_event':name, **fields}))
         except (ValueError,OSError): raise InferenceFailure('模型文件缺失或损坏，请重新下载或导入','model') from None
-        device_name='CPU'
+        from ..local_acceleration_runtime import load_runtime, create_session, profile_evidence, PROVIDERS
+        from ..gpu_devices import resolve_device
+        selected, device_name = None, 'CPU'
+        if device != 'cpu':
+            selected = resolve_device(device_identity, device)
+            if expected_driver is not None and selected['driver'] != expected_driver:
+                raise InferenceFailure('GPU 驱动在检测后发生变化，请重新检测', 'config')
+            device_id = selected['cuda_index'] if device == 'cuda' else selected['dxgi_index']
+            device_name = selected['name']
         if device == 'cuda':
-            from .gpu import gpu_devices,MANIFEST_PATH
-            selected=next((d for d in gpu_devices() if int(d['id'])==device_id),None)
-            if not selected: raise InferenceFailure('未发现所选 NVIDIA GPU','gpu')
+            from .gpu import cuda_driver_version, MANIFEST_PATH
             minimum=json.loads(MANIFEST_PATH.read_text())['minimum_windows_driver']
-            if tuple(map(int,selected['driver'].split('.'))) < tuple(map(int,minimum.split('.'))):
-                raise InferenceFailure('NVIDIA 驱动未达到本组件发布基线','gpu')
-            device_name=selected['name']
-            # 子进程启动前没有导入 ORT；附加组件只对本进程生效。
-            sys.path.insert(0, gpu_root)
-            dll_handles = []
-            for folder in Path(gpu_root).rglob('bin'):
-                if os.name == 'nt':
-                    dll_handles.append(os.add_dll_directory(str(folder)))
+            if tuple(map(int,cuda_driver_version().split('.'))) < tuple(map(int,minimum.split('.'))):
+                raise InferenceFailure('NVIDIA 驱动未达到本组件发布基线','gpu_init')
+        ort = load_runtime(device, gpu_root)
         import numpy as np
-        import onnxruntime as ort
         from tokenizers import Tokenizer
-        if device == 'cuda' and 'CUDAExecutionProvider' not in ort.get_available_providers():
-            raise InferenceFailure('NVIDIA 加速组件不可用', 'gpu')
         tokenizer = Tokenizer.from_file(str(Path(root) / 'tokenizer.json'))
         tokenizer.enable_padding(pad_id=tokenizer.token_to_id('[PAD]') or tokenizer.token_to_id('<pad>') or 0)
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = 2
-        options.inter_op_num_threads = 1
-        providers = ['CPUExecutionProvider']
         profile_dir = None
-        if device == 'cuda':
-            if hasattr(ort, 'preload_dlls'):
-                ort.preload_dlls(directory='')
-            providers = [('CUDAExecutionProvider', {'device_id': device_id, 'use_tf32': 0, 'arena_extend_strategy': 'kSameAsRequested', 'gpu_mem_limit': 2 * 1024**3}), 'CPUExecutionProvider']
+        if device != 'cpu':
             profile_dir = tempfile.TemporaryDirectory(prefix='wechat-semantic-probe-')
-            options.enable_profiling = True
-            options.profile_file_prefix = str(Path(profile_dir.name) / 'probe')
-        session = ort.InferenceSession(str(Path(root) / 'onnx/model.onnx'), sess_options=options, providers=providers)
+        session = create_session(Path(root) / 'onnx/model.onnx', device, device_id,
+                                 Path(profile_dir.name) / 'probe' if profile_dir else None)
+        if selected is not None:
+            current = resolve_device(device_identity, device)
+            ordinal = 'cuda_index' if device == 'cuda' else 'dxgi_index'
+            if (current['identity'], current['luid'], current[ordinal], current['driver']) != (selected['identity'], selected['luid'], selected[ordinal], selected['driver']):
+                raise InferenceFailure('GPU 身份、序号或驱动在初始化期间发生变化，请重新检测', 'config')
 
         def encode(texts, query=False):
             prefix = spec['query_prefix'] if query else spec['passage_prefix']
@@ -84,13 +82,22 @@ def inference_worker(pipe, root, spec, device, device_id, gpu_root):
                 raise InferenceFailure('模型输出维度或数值异常', 'model')
             return vectors.tolist()
 
-        encode(['本地模型连接测试'])
-        if device == 'cuda':
-            profile = json.loads(Path(session.end_profiling()).read_text(encoding='utf-8'))
-            if not any(e.get('args', {}).get('provider') == 'CUDAExecutionProvider' for e in profile):
-                raise InferenceFailure('显卡未实际参与推理', 'gpu')
+        passages = np.asarray(encode(VALIDATION_TEXTS))
+        queries = np.asarray(encode(VALIDATION_QUERIES, query=True))
+        if not np.allclose(np.linalg.norm(passages, axis=1), 1, atol=1e-4) or not np.allclose(np.linalg.norm(queries, axis=1), 1, atol=1e-4):
+            raise InferenceFailure('固定检索样例向量未正确归一化', 'model')
+        hits = (queries @ passages.T).argmax(axis=1).tolist()
+        if hits != [0, 1, 2]:
+            raise InferenceFailure(f'固定检索样例结果异常：{hits}', 'model')
+        evidence = None
+        if device != 'cpu':
+            evidence = profile_evidence(session.end_profiling(), PROVIDERS[device])
+            evidence.update(probe_hits=hits, finite=True, normalized=True)
             profile_dir.cleanup()
-        pipe.send({'ready': True, 'device': device, 'device_name':device_name, 'runtime': ort.__version__})
+        import onnxruntime.capi.onnxruntime_pybind11_state as native
+        pipe.send({'ready': True, 'device': device, 'device_id': device_id, 'device_identity': device_identity,
+                   'device_name':device_name, 'runtime': ort.__version__, 'runtime_file': ort.__file__,
+                   'native_file': native.__file__, 'evidence': evidence})
         while True:
             request = pipe.recv()
             if request is None:
@@ -98,28 +105,27 @@ def inference_worker(pipe, root, spec, device, device_id, gpu_root):
             try:
                 pipe.send({'vectors': encode(request['texts'], request.get('query', False))})
             except Exception as error:
-                category = getattr(error, 'category', 'gpu' if device == 'cuda' else 'runtime')
-                pipe.send({'error': category, 'diagnostic_fields': exception_fields(error)})
+                pipe.send({'error': failure_category(error), 'diagnostic': str(error), 'diagnostic_fields': exception_fields(error)})
     except Exception as error:
-        try:
-            pipe.send({'error': getattr(error, 'category', 'gpu' if device == 'cuda' else 'model'), 'diagnostic': str(error) if isinstance(error,InferenceFailure) else type(error).__name__, 'diagnostic_fields': exception_fields(error)})
-        except (OSError, EOFError):
-            pass
+        pipe.send({'error': failure_category(error), 'diagnostic': str(error), 'diagnostic_fields': exception_fields(error)})
     finally:
         pipe.close()
 
 
 class LocalInference:
-    def __init__(self, gpu_root=None, callback=None):
+    def __init__(self, gpu_root=None, callback=None, dml_root=None, acceleration=None):
         self.gpu_root = gpu_root
+        self.dml_root = dml_root
+        self.acceleration = acceleration
         self.callback = callback or (lambda status: None)
         self.lock = threading.RLock()
         self.process = self.pipe = None
         self.key = None
         self.gpu_failed = False
         self.last_used = 0
-        self.status = {'actual_device': None, 'using_fallback': False, 'reason': ''}
+        self.status = {'actual_device': None, 'using_fallback': False, 'reason': '', 'active': False}
         self.runtime_info={}
+        self.runtime_context = None
         self.query_waiting=0
         self.priority=threading.Condition()
 
@@ -128,7 +134,7 @@ class LocalInference:
             self._close()
 
     def _close(self):
-        if self.process:
+        if self.process and self.process.pid is not None:
             if self.process.is_alive():
                 self.process.terminate()
             self.process.join(timeout=3)
@@ -136,6 +142,29 @@ class LocalInference:
         if self.pipe:
             self.pipe.close()
         self.process = self.pipe = self.key = None
+        if self.status.get('active'):
+            self.status = {**self.status, 'active': False}
+            if self.acceleration is not None and self.runtime_context is not None:
+                model, account = self.runtime_context
+                self.acceleration.record_runtime('search', account, model, self.status)
+            self.callback(self.status)
+        self.runtime_context = None
+
+    def _select(self, spec, strategy, device_id, device_identity):
+        if self.acceleration is not None:
+            return self.acceleration.select('search', spec, strategy, device_identity, device_id)
+        if strategy not in {'auto', 'cpu', 'cuda', 'dml'}:
+            raise InferenceFailure('检索设备配置无效', 'config')
+        device = strategy
+        if strategy == 'auto':
+            device = ('cuda' if self.gpu_root else 'dml' if self.dml_root else 'cpu') if device_identity and not self.gpu_failed else 'cpu'
+        runtime_root = self.gpu_root if device == 'cuda' else self.dml_root if device == 'dml' else None
+        if device != 'cpu' and (sys.platform != 'win32' or not runtime_root):
+            raise InferenceFailure('所选 GPU 运行组件尚未就绪', 'gpu_init')
+        if device != 'cpu' and not device_identity:
+            raise InferenceFailure('所选 GPU 缺少持久设备身份，请重新检测', 'config')
+        return {'backend': device, 'device_id': device_id, 'device_identity': device_identity if device != 'cpu' else None,
+                'runtime_root': str(runtime_root) if runtime_root else None, 'generation': 0, 'reason': ''}
 
     def _receive(self, cancelled, timeout=90):
         deadline = time.monotonic() + timeout
@@ -161,7 +190,7 @@ class LocalInference:
         raise InferenceFailure('模型响应超时', 'timeout')
 
     @observed('inference.encode')
-    def encode(self, root, spec, texts, strategy='auto', device_id=0, query=False, cancelled=None):
+    def encode(self, root, spec, texts, strategy='auto', device_id=0, query=False, cancelled=None, device_identity=None, account=''):
         queued = time.monotonic()
         with self.priority:
             if query: self.query_waiting+=1
@@ -178,48 +207,73 @@ class LocalInference:
             # 完整模型的加载错误不按显卡故障反复重试。
             if not (Path(root)/'onnx/model.onnx').is_file() or not (Path(root)/'tokenizer.json').is_file():
                 raise InferenceFailure('本地模型文件缺失，请重新下载或导入','model')
-            cuda_supported = sys.platform == 'win32'
-            device = 'cuda' if cuda_supported and strategy != 'cpu' and self.gpu_root and not self.gpu_failed else 'cpu'
-            # Mac 的自动模式本来就使用 CPU，不能误报为缺少 NVIDIA 组件或 GPU 故障。
-            fallback = device == 'cpu' and (strategy == 'cuda' or (cuda_supported and strategy == 'auto'))
+            try:
+                choice = self._select(spec, strategy, device_id, device_identity)
+            except AccelerationError as error:
+                raise InferenceFailure(str(error), error.category) from error
+            device, fallback = choice['backend'], choice.get('using_fallback', False)
+            fallback_reason = choice['reason'] if fallback else ''
             diagnostic_event('inference.batch.acquired', queue_ms=(time.monotonic()-queued)*1000, actual_device=device, purpose='query' if query else 'index',
-                             reason_code='gpu_unavailable' if fallback else 'platform_cpu' if not cuda_supported else 'configured', count=len(texts))
+                             reason_code='configured', count=len(texts))
             for attempt in range(2):
                 try:
-                    key = (str(root), spec['revision'], device, device_id)
+                    key = (str(root), spec['revision'], device, choice['device_id'], choice['device_identity'],
+                           choice['runtime_root'], choice['generation'])
                     if self.key != key:
                         self.close()
                         parent, child = mp.get_context('spawn').Pipe()
                         self.pipe = parent
                         self.process = mp.get_context('spawn').Process(target=inference_worker,
-                            args=(child, str(root), spec, device, device_id, str(self.gpu_root or '')), daemon=True)
-                        self.process.start()
+                            args=(child, str(root), spec, device, choice['device_id'], choice['runtime_root'], choice['device_identity'],
+                                  choice.get('fingerprint', {}).get('driver')), daemon=True)
+                        try:
+                            self.process.start()
+                        finally:
+                            child.close()
                         diagnostic_event('inference.process.started', pid=getattr(self.process,'pid',None), actual_device=device, device_id=device_id)
-                        child.close()
                         ready=self._receive(cancelled)
                         diagnostic_event('inference.process.ready', actual_device=device, runtime=ready.get('runtime'), model=spec.get('id'))
-                        self.runtime_info={k:ready.get(k) for k in ('device_name','runtime')}
+                        self.runtime_info={k:ready.get(k) for k in ('device_name','runtime','runtime_file','native_file','evidence','device_id')}
+                        if device != 'cpu' and self.acceleration is not None:
+                            self.acceleration.validated(choice, ready['evidence'])
                         self.key = key
                     self.pipe.send({'texts': texts, 'query': query})
                     vectors = self._receive(cancelled)['vectors']
+                    if cancelled and cancelled():
+                        raise InferenceFailure('处理已暂停', 'cancelled')
                     diagnostic_event('inference.batch.finished', actual_device=device, count=len(vectors), using_fallback=fallback)
                     self.last_used = time.monotonic()
                     previous_status = self.status
-                    self.status = {**self.runtime_info,'actual_device': device, 'using_fallback': fallback,
-                        'device_id': device_id if device=='cuda' else None,
-                        'diagnostic': self.status.get('diagnostic') if fallback else None,
-                        'reason': ('当前系统使用 CPU 本地推理，不支持 NVIDIA 加速组件' if not cuda_supported else '显卡暂不可用，已使用 CPU 继续处理' if self.gpu_failed else 'NVIDIA 加速组件尚未就绪，当前使用 CPU') if fallback else ''}
+                    if self.acceleration is not None and self.runtime_context is not None and self.runtime_context != (spec, account):
+                        previous_model, previous_account = self.runtime_context
+                        self.acceleration.record_runtime('search', previous_account, previous_model, {**self.status, 'active': False})
+                    self.status = {**self.runtime_info,'actual_device': device, 'backend': device, 'using_fallback': fallback,
+                        'device_id': self.runtime_info.get('device_id') if device != 'cpu' else None,
+                        'device_identity': choice['device_identity'], 'active': True, 'account': account,
+                        'cpu_participation': bool((self.runtime_info.get('evidence') or {}).get('cpu_nodes', 0)),
+                        'diagnostic': fallback_reason or None, 'reason': fallback_reason or choice['reason'],
+                        'strategy': strategy, 'selected_device_identity': device_identity}
+                    self.runtime_context = (spec, account)
+                    if self.acceleration is not None:
+                        self.acceleration.record_runtime('search', account, spec, self.status)
                     # 设备未变时不逐批写入相同事件，避免快速推理淹没进度推送。
                     if self.status != previous_status:
                         self.callback(self.status)
                     return vectors
-                except InferenceFailure as error:
+                except Exception as error:
                     self.close()
-                    if device == 'cuda' and error.category not in {'cancelled', 'input', 'model'}:
-                        diagnostic_event('inference.cpu.fallback', level=logging.WARNING, error=error, reason_code=error.category)
+                    category = failure_category(error)
+                    if self.acceleration is not None:
+                        self.acceleration.failed(choice, error)
+                    if strategy == 'auto' and device != 'cpu' and category in GPU_FAILURES and attempt == 0:
+                        diagnostic_event('inference.cpu.fallback', level=logging.WARNING, error=error, reason_code=category)
                         self.gpu_failed, fallback, device = True, True, 'cpu'
-                        self.status = {'actual_device': 'switching', 'using_fallback': True, 'reason': 'GPU 推理失败，正在使用 CPU 恢复当前批次', 'diagnostic': str(error)}
+                        fallback_reason = f'GPU 推理失败，已使用 CPU 恢复当前批次：{error}'
+                        choice = {**choice, 'backend': 'cpu', 'device_id': 0, 'device_identity': None, 'runtime_root': None, 'reason': fallback_reason}
+                        self.status = {'actual_device': 'switching', 'using_fallback': True, 'reason': 'GPU 推理失败，正在使用 CPU 恢复当前批次',
+                                       'diagnostic': str(error), 'active': False, 'account': account}
                         self.callback(self.status)
                         continue
-                    raise
+                    if isinstance(error, InferenceFailure): raise
+                    raise InferenceFailure(str(error), category) from error
             raise InferenceFailure('CPU 恢复失败')

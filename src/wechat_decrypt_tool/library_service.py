@@ -57,6 +57,13 @@ class LibraryService:
         }[kind]
         if not isinstance(value, dict) or not required.issubset(value) or value['account'] != account or value['id'] != row['id']:
             raise ValueError(f'资料记录损坏: {kind}/{row["id"]}')
+        if kind == 'library_item' and value['kind'] == 'extracted_text':
+            extraction, source = value.get('extraction'), value['source']
+            if (not isinstance(extraction, dict) or not {'status', 'complete', 'extraction_method', 'ocr_units',
+                    'file_hash', 'version', 'ocr_engine', 'cache_token', 'updated'}.issubset(extraction)
+                    or not isinstance(source, dict) or not {'username', 'anchor', 'text', 'sender', 'create_time', 'render_type'}.issubset(source)
+                    or not isinstance(value['content'], str)):
+                raise ValueError(f'提取文字资料来源损坏: {row["id"]}')
         return value
 
     def get(self, db, kind, id, account):
@@ -94,12 +101,29 @@ class LibraryService:
             now = time.time()
             return self.put(db, kind, {**fields, 'id': uuid.uuid4().hex, 'account': account, 'created_at': now, 'updated_at': now})
 
+    def create_extracted_text(self, account, fields, message, cache_token):
+        from .attachment_service import read_extracted_text
+        with self.transaction(account) as (db, owner):
+            self.get(db, 'library_folder', fields['folder_id'], owner)
+            cached = read_extracted_text(db, owner, fields['source']['username'], message)
+            if cached['cache_token'] != cache_token:
+                raise HTTPException(409, '提取文字已变化，请重新打开全文后保存。')
+            if not cached['complete'] or not cached['text'].strip():
+                raise HTTPException(422, '只能保存已完整提取且有文字的结果；请先重新提取或识别。')
+            extraction = {key: cached[key] for key in ('status', 'complete', 'extraction_method', 'ocr_units',
+                          'file_hash', 'version', 'ocr_engine', 'cache_token', 'updated')}
+            now = time.time()
+            return self.put(db, 'library_item', {**fields, 'content': cached['text'], 'extraction': extraction,
+                'title': fields['title'] or ('图片识别文字' if cached['extraction_method'] == 'local_ocr' else '附件提取正文'),
+                'id': uuid.uuid4().hex, 'account': owner, 'created_at': now, 'updated_at': now})
+
     def update(self, kind, id, account, fields):
         with self.transaction(account) as (db, account):
             record = self.get(db, kind, id, account)
             if kind == 'library_item':
                 if 'content' in fields and record['kind'] != 'report':
-                    raise HTTPException(422, '原始消息内容不能修改')
+                    detail = '提取文字不能修改；可在笔记中记录人工更正。' if record['kind'] == 'extracted_text' else '原始消息内容不能修改'
+                    raise HTTPException(422, detail)
                 if 'content' in fields:
                     fields = {**fields, 'user_edited': fields['content'] != record['report']['answer']}
                 if 'folder_id' in fields:

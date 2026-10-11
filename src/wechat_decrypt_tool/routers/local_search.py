@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .ai import local_only, account_name
-from ..local_search.service import get_local_search
+from ..local_search.service import get_local_search, validate_device_config
 from ..local_search.catalog import model_dir
 
 router = APIRouter(prefix='/api/ai/local-search', dependencies=[Depends(local_only)])
@@ -20,13 +20,15 @@ class Settings(BaseModel):
     days: Literal[0,30,90] = 90
     start: int | None = Field(default=None, ge=0)
     end: int | None = Field(default=None, ge=0)
-    device: Literal['auto','cpu','cuda'] = 'auto'
+    device: Literal['auto','cpu','cuda','dml'] = 'auto'
     device_id: int = Field(default=0, ge=0, le=32)
+    device_identity: str | None = Field(default=None, min_length=1)
     auto_update: bool = True
     read_batch_size: Literal[0, 100, 500, 1000, 2000] = 0
     @model_validator(mode='after')
     def ranges(self):
         if self.start is not None and self.end is not None and self.start > self.end: raise ValueError('开始时间不能晚于结束时间')
+        validate_device_config({'device': self.device, 'device_id': self.device_id, 'device_identity': self.device_identity})
         self.usernames = list(dict.fromkeys(u.strip() for u in self.usernames if u.strip()))
         return self
 
@@ -85,33 +87,17 @@ async def index_action(action: Literal['build','rebuild','pause','resume','clear
 @router.post('/device/recheck')
 async def recheck(account: str):
     service = get_local_search()
-    cfg = service.config(account_name(account))
-    from ..local_search.catalog import model_dir, model_spec
-    def reset():
-        with service.engine.lock:
-            service.engine.close()
-            service.engine.gpu_failed = False
-    await asyncio.to_thread(reset)
-    try:
-        await asyncio.to_thread(service.engine.encode, model_dir(service.downloads.root,cfg['model']), model_spec(cfg['model']), ['设备检测'],cfg['device'],cfg['device_id'])
-    except Exception: raise HTTPException(400,'设备检测未完成，请先准备模型和运行组件') from None
-    return service.engine.status
+    account_name(account)
+    return await service.acceleration.detect(reset_failures=True)
 
 @router.get('/device/list')
 async def list_devices():
-    from ..local_search.gpu import gpu_devices
-    return await asyncio.to_thread(gpu_devices)
+    return get_local_search().acceleration.hardware
 
 @router.post('/gpu/{action}')
-async def gpu_action(action: Literal['download','pause','import'], body: ImportBody | None = None):
-    gpu = get_local_search().gpu
-    try:
-        if action == 'pause': await gpu.pause()
-        else:
-            if action == 'import' and not body: raise ValueError('请选择离线组件目录')
-            await gpu.start(body.path if action == 'import' else None)
-        return gpu.status()
-    except ValueError as e: raise HTTPException(400,str(e)) from None
+async def gpu_action(action: Literal['download','pause','import'], body: ImportBody | None = None, account: str | None = None):
+    from .local_acceleration import component_action
+    return await component_action('cuda', action, body, account)
 
 @router.get('/events')
 async def events(request: Request, account: str | None = None, after: int = 0):

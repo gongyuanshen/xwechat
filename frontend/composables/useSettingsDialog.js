@@ -16,6 +16,7 @@ export const useSettingsDialog = () => {
     open,
     focusTarget,
     openDialog,
+    openLocalAcceleration: () => openDialog('local-acceleration'),
     closeDialog,
   }
 }

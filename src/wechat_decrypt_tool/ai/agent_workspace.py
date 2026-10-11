@@ -190,8 +190,15 @@ class Evidence(MutableMapping):
         if existing:
             old = json.loads(existing[1])
             key = existing[0]
+            from .agent_tools import LOCAL_ATTACHMENT_FIELDS, retain_local_attachment
+            had_local_attachment = bool(old.get('local_attachment_provenance'))
+            value = retain_local_attachment(value, old)
+            # 来源版本已变化时，旧 OCR 元数据不能随普通字段合并重新出现。
+            if had_local_attachment and not value.get('local_attachment_provenance'):
+                old.pop('coverage', None)
+            old = {field: item for field, item in old.items() if field not in LOCAL_ATTACHMENT_FIELDS}
             # 回查上下文补充元数据，不丢掉先前保存的消息身份与已提取附件文字。
-            if old.get('coverage','').startswith('已分析') and old.get('text','').startswith(value.get('text','')):
+            if not had_local_attachment and old.get('coverage','').startswith('已分析') and old.get('text','').startswith(value.get('text','')):
                 value['text']=old['text']
             value=old | value
             value.update(source=key, match_methods=sorted(set(old.get('match_methods',[])+value.get('match_methods',[]))))

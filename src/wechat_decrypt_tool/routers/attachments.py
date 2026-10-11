@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .ai import local_only, account_name
 from ..account_workers import AccountFileResponse, account_to_thread
 from ..ai.service import get_ai_service
-from ..attachment_service import authoritative_message, browse_attachments, extract_document, resolve_attachment
+from ..attachment_service import authoritative_message, browse_attachments, extract_document, read_extracted_text, resolve_attachment
 from ..chat_helpers import _resolve_account_dir
 from ..snapshot_registry import account_work
 
@@ -20,6 +20,10 @@ class AttachmentSource(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     username: str = Field(min_length=1)
     anchor: str = Field(min_length=1)
+
+
+class AttachmentExtraction(AttachmentSource):
+    ocr: bool = False
 
 
 @router.get('')
@@ -56,10 +60,22 @@ async def content(request: Request, account: str, username: str = Query(min_leng
 
 
 @router.post('/extract')
-async def extract(body: AttachmentSource, request: Request, account: str):
+async def extract(body: AttachmentExtraction, request: Request, account: str):
     owner = account_name(account)
     account_dir = _resolve_account_dir(owner)
     with account_work(account_dir):
         message = await authoritative_message(request, owner, body)
         resolved = await resolve_attachment(request, owner, body.username, message)
-        return await account_to_thread(account_dir, extract_document, get_ai_service(), owner, body.username, message, resolved)
+        return await account_to_thread(account_dir, extract_document, get_ai_service(), owner, body.username, message, resolved, ocr=body.ocr)
+
+
+@router.get('/text')
+async def extracted_text(request: Request, account: str, username: str = Query(min_length=1), anchor: str = Query(min_length=1)):
+    owner = account_name(account)
+    account_dir = _resolve_account_dir(owner)
+    with account_work(account_dir):
+        message = await authoritative_message(request, owner, AttachmentSource(username=username, anchor=anchor))
+        def read():
+            with get_ai_service().store.connection() as db:
+                return read_extracted_text(db, owner, username, message)
+        return await account_to_thread(account_dir, read)

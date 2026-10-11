@@ -87,12 +87,15 @@ async def start_services():
 
 @observed('lifecycle.stop')
 async def stop_services():
+    import asyncio
+    from ..local_ocr import close_ocr
     from .service import get_ai_service
     from .agent_service import get_agent_service
     from .insights import get_insight_service
     from .auto_reply import get_auto_reply_service
     from ..local_search.service import get_local_search
     _stop_store_maintenance()
+    await asyncio.to_thread(close_ocr)
     for name, factory in (('auto_reply',get_auto_reply_service),('search',get_local_search),('insights',get_insight_service),('summary',get_ai_service),('agent',get_agent_service)):
         try:
             await factory().stop()

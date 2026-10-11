@@ -13,7 +13,7 @@
         <component :is="tab.icon" :size="16" :stroke-width="1.8" aria-hidden="true" /><span class="ais-tab-copy"><strong>{{ tab.label }}</strong><small>{{ tab.hint }}</small></span>
       </button>
     </div>
-    <LocalSearchSettings v-if="activeTab === 'local'" account-wide id="ais-local" role="tabpanel" aria-labelledby="ais-local-tab" />
+    <LocalSearchSettings v-if="activeTab === 'local'" account-wide id="ais-local" role="tabpanel" aria-labelledby="ais-local-tab" @manage-acceleration="settingsDialog.openLocalAcceleration()" />
     <AutoReplySettings v-if="activeTab === 'auto-reply'" id="ais-auto-reply" role="tabpanel" aria-labelledby="ais-auto-reply-tab" />
     <p v-if="error" role="alert" class="ais-feedback is-error">{{ error }}</p>
     <p v-if="notice" role="status" class="ais-feedback is-success"><CircleCheck :size="16" :stroke-width="1.8" aria-hidden="true" />{{ notice }}</p>
@@ -167,7 +167,8 @@ function navigateTabs(event,id){
   activeTab.value=settingsTabs[next].id
   nextTick(()=>document.getElementById(`ais-${activeTab.value}-tab`)?.focus())
 }
-const localSettingsTarget = useSettingsDialog().focusTarget || ref('')
+const settingsDialog = useSettingsDialog()
+const localSettingsTarget = settingsDialog.focusTarget || ref('')
 // 服务连接结果不带入本地检索、Agent 或审计页面。
 watch(activeTab, () => { error.value = ''; notice.value = ''; auditRemoval.value = null })
 watch(localSettingsTarget, target => {

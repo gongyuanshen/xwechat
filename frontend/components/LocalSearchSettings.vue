@@ -93,21 +93,9 @@
         <div class="lss-advanced-body">
           <p class="lss-note">CPU 即可使用，NVIDIA 加速为可选项，无需先下载加速组件。</p>
               <article class="lss-device-panel">
-      <div class="lss-row"><div><h5>运行设备</h5><p>优先使用可用的 NVIDIA GPU，出现故障时自动使用 CPU 继续。</p></div>
-        <div class="lss-segments" role="group" aria-label="推理设备"><button v-for="d in devices" :key="d.value" type="button" :aria-pressed="form.device === d.value" :disabled="!account || busy || running" @click="form.device=d.value; save()">{{ d.label }}</button></div>
-      </div>
-      <div class="lss-row lss-device-state"><span>已选：{{ devices.find(d=>d.value===form.device)?.label || 'NVIDIA GPU（当前系统使用 CPU）' }} · 实际：{{ actualDevice }}</span><button type="button" :disabled="busy || !account" @click="act(()=>request('/device/recheck',{method:'POST'},true),'设备检测完成')">重新检测</button></div>
-      <UiSelect v-if="gpuDevices.length > 1" :model-value="String(form.device_id)" @update:model-value="form.device_id=Number($event)" label="选择 NVIDIA 显卡" :options="gpuDevices.map(d=>({value:String(d.id),label:d.name}))" @change="save" />
-      <p v-if="state.device?.reason" class="lss-note">{{ state.device.reason }}</p>
-      <div class="lss-row"><span>{{ state.gpu?.installed ? 'NVIDIA 加速组件已安装' : 'NVIDIA 加速组件 · ' + bytes(state.gpu?.size) }}</span>
-        <div class="lss-actions">
-          <button v-if="!state.gpu?.installed" type="button" :disabled="busy || gpuActive || !state.gpu?.supported" :aria-busy="gpuActive || gpuOperation==='download'" @click="downloadGpu">{{ gpuDownloadLabel }}</button>
-          <button v-if="gpuActive" type="button" :disabled="busy" @click="pauseGpu">{{ gpuOperation==='pause' ? '正在暂停…' : '暂停' }}</button>
-          <button type="button" :disabled="busy || gpuActive || !state.gpu?.supported" @click="openImport('gpu')">离线导入</button>
-        </div>
-      </div>
-      <p v-if="state.gpu?.job && state.gpu.job.status !== 'done'" class="lss-note">{{ stage(state.gpu.job) }} · {{ bytes(state.gpu.job.bytes) }} / {{ bytes(state.gpu.job.total) }} {{ state.gpu.job.error }}</p>
-    </article>
+                <div class="lss-row"><div><h5>运行设备与加速</h5><p>统一管理显卡、加速组件与当前模型验证。</p></div><button type="button" @click="emit('manage-acceleration')">管理本地加速</button></div>
+                <p class="lss-device-state">已选：{{ devicePreference }} · 实际：{{ actualDevice }}</p>
+              </article>
 
 
           <div class="lss-row lss-maintenance"><div><h5>每批读取消息数</h5><p>自动按本机可用内存调整。手动选择较大批量时，内存不足也会减小；读取数量持续更新。</p></div><UiSelect :model-value="String(form.read_batch_size)" @update:model-value="form.read_batch_size=Number($event)" label="每批读取消息数" :disabled="!account || busy || running" :options="readBatchOptions" /></div>
@@ -116,7 +104,7 @@
           <div class="lss-actions"><button type="button" :disabled="busy || !account || running" @click="save">保存高级设置</button></div>
           <div class="lss-row lss-maintenance"><div><h5>功能与数据管理</h5><p>{{ account ? '当前账号：'+account : '请先选择账号' }} · 本地索引 {{ bytes(state.index_bytes) }}</p><p v-if="state.config?.active" class="lss-note">最近更新 {{ date(state.config.active.updated) }}</p></div><div class="lss-actions"><button v-if="form.enabled" type="button" :disabled="busy" @click="disableSearch">关闭本地检索</button><button type="button" :disabled="busy || !account || running" @click="clearIndex">清理索引</button></div></div>
           <p class="lss-note">关闭功能会保留模型和索引；清理索引不会删除聊天记录。未解析的图片和扫描件不在本地搜索范围内。</p>
-          <details v-if="state.audit?.length" class="lss-section"><summary>本地处理记录</summary><p v-for="a in state.audit" :key="a.id" class="lss-note">{{ a.kind==='search' ? '检索' : '整理聊天' }} · {{ a.model }} · {{ a.actual_device==='cuda' ? 'NVIDIA GPU' : 'CPU' }} · {{ Number(a.seconds).toFixed(1) }} 秒</p></details>
+          <details v-if="state.audit?.length" class="lss-section"><summary>本地处理记录</summary><p v-for="a in state.audit" :key="a.id" class="lss-note">{{ a.kind==='search' ? '检索' : '整理聊天' }} · {{ a.model }} · {{ accelerationRuntimeText(a) }} · {{ Number(a.seconds).toFixed(1) }} 秒</p></details>
         </div>
       </details>
       <div class="lss-bottom-note"><Laptop :size="16" :stroke-width="1.8" aria-hidden="true" /><span>本地搜索不上传聊天。AI 助手回答时，引用的内容仍会发送至你配置的模型服务。</span></div>
@@ -163,13 +151,15 @@
           </div>
           <footer class="lss-scope-footer"><div aria-live="polite"><strong>已选择 {{ scopeDraft.length }} 个聊天</strong><p>群聊 {{ scopeCategories[0].selected }} · 个人聊天 {{ scopeCategories[1].selected }}<template v-if="scopeUnavailable"> · 暂不可用 {{ scopeUnavailable }}</template></p></div><div class="lss-scope-footer-actions"><button type="button" @click="closeDialog">取消</button><button type="button" class="lss-primary" @click="form.usernames=[...scopeDraft]; dialog=''">确认选择</button></div></footer>
         </template>
-        <template v-else><p>填写完整的{{ importId==='gpu' ? '加速组件 wheel 文件' : '内置模型' }}所在目录。</p><input v-model="importPath" placeholder="本机目录完整路径" aria-label="离线文件目录" /><p v-if="importActive" class="lss-note">正在下载或处理文件，请先暂停，再离线导入。</p><button type="button" class="lss-primary" :disabled="busy || !importPath || (importActive)" @click="importFiles">校验并导入</button></template>
+        <template v-else><p>填写完整的内置模型所在目录。</p><input v-model="importPath" placeholder="本机目录完整路径" aria-label="离线文件目录" /><p v-if="importActive" class="lss-note">正在下载或处理文件，请先暂停，再离线导入。</p><button type="button" class="lss-primary" :disabled="busy || !importPath || (importActive)" @click="importFiles">校验并导入</button></template>
       </section>
     </div></Teleport>
   </section>
 </template>
 
 <script setup>
+import { accelerationRuntimeText } from '~/composables/useLocalAccelerationApi'
+const emit = defineEmits(['manage-acceleration'])
 import { Box, Check, ChevronDown, CircleAlert, CircleCheck, CirclePause, Info, Laptop, LoaderCircle, Microchip, Pause, Play, Search, SlidersHorizontal, X } from '@lucide/vue'
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
@@ -178,13 +168,13 @@ import UiSelect from './UiSelect.vue'
 const props=defineProps({accountWide:{type:Boolean,default:false}})
 const { selectedAccount: account }=storeToRefs(useChatAccountsStore())
 const api=useAiApi(), route=useRoute()
-const state=ref({}), form=reactive({enabled:false,model:null,usernames:[],days:90,start:null,end:null,device:'auto',device_id:0,auto_update:true,read_batch_size:0})
+const state=ref({}), form=reactive({enabled:false,model:null,usernames:[],days:90,start:null,end:null,device:'auto',device_id:0,device_identity:null,auto_update:true,read_batch_size:0})
 const statusRef=ref(null)
-const advancedOpen=ref(false),busy=ref(false),dialogError=ref(''),error=ref(''),notice=ref(''),now=ref(Date.now()/1000),gpuDevices=ref([])
+const advancedOpen=ref(false),busy=ref(false),dialogError=ref(''),error=ref(''),notice=ref(''),now=ref(Date.now()/1000)
 const dialog=ref(''),dialogRef=ref(null),scopeSearch=ref(''),scopeDraft=ref([]),chats=ref([]),importId=ref(''),importPath=ref('')
 const period=ref('90'),startDate=ref(''),endDate=ref('')
 const periods=[{value:'90',label:'最近 90 天'},{value:'30',label:'最近 30 天'},{value:'0',label:'全部历史'},{value:'custom',label:'自定义时间'}]
-const devices=computed(()=>[{value:'auto',label:'自动'},{value:'cpu',label:'CPU'},{value:'cuda',label:'NVIDIA GPU'}])
+const devicePreference=computed(()=>({auto:'自动',cpu:'CPU',cuda:'NVIDIA CUDA',dml:'AMD DirectML'})[form.device] || form.device)
 const readBatchOptions=[{value:'0',label:'自动 · 推荐'},{value:'100',label:'100 条 · 低占用'},{value:'500',label:'500 条'},{value:'1000',label:'1,000 条'},{value:'2000',label:'2,000 条 · 大批量'}]
 const job=computed(()=>state.value.jobs?.[0])
 const indexStats=computed(()=>state.value.index_stats ?? job.value?.index_stats)
@@ -198,16 +188,7 @@ const globalCoverage=computed(()=>{
   return `${active.partial ? '部分覆盖' : '本轮覆盖已保存'} · ${new Set(ranges.map(r=>r.username)).size} 个聊天 · ${complete} 个时间段已读完。新增或尚未读取的记录继续使用基础搜索。`
 })
 const modelActive=id=>['queued','running'].includes(state.value.models?.find(m=>m.id===id)?.job?.status)
-const importActive=computed(()=>importId.value==='gpu' ? gpuActive.value : modelActive(importId.value))
-const gpuOperation=ref('')
-const gpuActive=computed(()=>['queued','running'].includes(state.value.gpu?.job?.status))
-const gpuDownloadLabel=computed(()=>{
-  if(gpuOperation.value==='download')return '正在提交…'
-  const current=state.value.gpu?.job
-  if(current?.status==='queued')return '等待下载…'
-  if(gpuActive.value)return ({connecting:'正在连接…',retry_wait:'等待重试…',verifying:'正在校验…',installing:'正在安装…'}[current.stage] || '正在下载…')
-  return current?.status==='paused' ? '继续下载组件' : current?.status==='error' ? '重试下载组件' : '下载加速组件'
-})
+const importActive=computed(()=>modelActive(importId.value))
 const scopeQuery=computed(()=>scopeSearch.value.trim().toLowerCase())
 const scopeSelected=computed(()=>new Set(scopeDraft.value))
 const scopeCategories=computed(()=>[
@@ -275,24 +256,25 @@ const canResume=computed(()=>form.enabled && (!props.accountWide || state.value.
 const modelChanged=computed(()=>!!state.value.config?.active && !!form.model && form.model!==state.value.config.active.model)
 const indexMode=mode=>({incremental:'增量整理：读取新增消息与最近十分钟的补写；新增聊天或扩展历史会补齐对应范围。',reconcile:'正在进行每日历史校对，检查补写或修改的消息；未变化内容复用已有索引。',enrichment:'已有转写或附件文字发生变化，正在核对所选范围；未变化内容复用已有索引。',rebuild:'正在重新建立索引，原索引保留至完成。',initial:'首次整理当前模型和范围，进度会自动保存。',manual_check:'正在核对所选范围，未变化内容复用已有索引。'}[mode] || '')
 const localDate=value=>value ? new Date(value*1000).toLocaleDateString('en-CA') : ''
-const actualDevice=computed(()=>state.value.device?.actual_device==='cuda' ? (state.value.device?.device_name || 'NVIDIA GPU') : ({cpu:'CPU',switching:'正在切换 CPU'}[state.value.device?.actual_device] || '等待模型加载'))
+const actualDevice=computed(()=>accelerationRuntimeText(state.value.device))
 const bytes=n=>!n ? '0 B' : n<1024**2 ? `${(n/1024).toFixed(0)} KB` : n<1024**3 ? `${(n/1024**2).toFixed(1)} MB` : `${(n/1024**3).toFixed(2)} GB`
 const date=n=>n ? new Date(n*1000).toLocaleString() : '—'
 const elapsed=j=>`${Math.max(0,Math.floor((j.finished || (['paused','done','error'].includes(j.status) ? j.updated : now.value) || now.value)-j.started))} 秒`
 const stage=j=>!j ? '未下载' : ({counting:'正在统计消息总量',importing:'导入中',pausing:'正在暂停',queued:'等待整理',connecting:'连接中',downloading:'下载中',retry_wait:'等待重试',paused:'已暂停',verifying:'校验中',verified:'校验完成',loading:'测试模型',done:'已完成',error:'处理失败',reading:'读取聊天记录',organizing:'整理消息片段',embedding:'正在理解聊天内容',saving:'正在保存搜索数据',installing:'安装加速组件'}[j.status==='error' || j.status==='paused' ? j.status : j.stage] || '处理中')
 const request=(path,options={},scoped=false)=>api.request(`/local-search${path}${scoped && account.value ? `${path.includes('?')?'&':'?'}account=${encodeURIComponent(account.value)}`:''}`,options)
 let refreshDone=Promise.resolve()
-let timer, loading=false, version=0, gpuVersion=0, needsReset=false, previousFocus, stopEvents
+let timer, loading=false, version=0, needsReset=false, previousFocus, stopEvents
 const defaults={...form,usernames:[]}
 async function refresh(reset=false,wait=false){
   needsReset ||= reset
   if(loading){if(wait){await refreshDone;return refresh(reset,true)}return}
   let finishRefresh;refreshDone=new Promise(resolve=>{finishRefresh=resolve})
-  loading=true; const current=account.value, stamp=version, gpuStamp=gpuVersion
+  loading=true; const current=account.value, stamp=version
   try { const result=await request('/status',{},true); if(current!==account.value || stamp!==version)return;
     // 慢轮询响应不能覆盖刚收到的实时进度。
     result.jobs=result.jobs?.map(incoming=>{const live=state.value.jobs?.find(j=>j.id===incoming.id);if(live?.updated>incoming.updated){api.diagnostic?.('response.stale',{task_id:incoming.id,component:'search'});return live}return incoming})
-    state.value=gpuStamp===gpuVersion ? result : {...result,gpu:state.value.gpu}
+    state.value=result
+    if(result.config)for(const key of ['device','device_id','device_identity'])if(key in result.config)form[key]=result.config[key]
     if(needsReset){Object.assign(form,defaults);if(result.config)for(const key of Object.keys(form)) if(key in result.config)form[key]=result.config[key];period.value=form.start!==null?'custom':String(form.days);startDate.value=form.start?new Date(form.start*1000).toLocaleDateString('en-CA'):'';endDate.value=form.end?new Date(form.end*1000).toLocaleDateString('en-CA'):'';needsReset=false}
   } catch(e){error.value=e.message} finally{loading=false;finishRefresh()}
 }
@@ -324,8 +306,8 @@ function savedValues(){
 }
 const save=()=>act(async()=>{
   const prior=savedValues(), current=account.value
-  try{await request('/settings',{method:'PUT',body:{...prior,device:form.device,device_id:form.device_id,auto_update:form.auto_update,read_batch_size:form.read_batch_size}},true)}
-  catch(e){if(current===account.value)for(const key of ['device','device_id','auto_update','read_batch_size'])form[key]=prior[key];throw e}
+  try{await request('/settings',{method:'PUT',body:{...prior,auto_update:form.auto_update,read_batch_size:form.read_batch_size}},true)}
+  catch(e){if(current===account.value)for(const key of ['auto_update','read_batch_size'])form[key]=prior[key];throw e}
 },'高级设置已保存')
 
 const startIndex=async(rebuild=false)=>{const currentAccount=account.value;await act(async()=>{
@@ -355,17 +337,10 @@ async function removeModel(m){if(!window.confirm(`确定${m.downloaded?'删除�
 const clearIndex=()=>{if(window.confirm('清理当前账号的语义索引？聊天记录和模型文件会保留；功能已关闭时，同时取消模型选择。'))act(async()=>{await request('/index/clear',{method:'POST'},true);needsReset=true})}
 async function openScope(){await act(async()=>{chats.value=await request('/conversations',{},true);scopeSearch.value='';scopeDraft.value=[...form.usernames];if(!scopeDraft.value.length && route.params.username && chats.value.some(c=>c.username===route.params.username))scopeDraft.value=[route.params.username];dialog.value='scope'})}
 // 直接采用操作返回的状态，避免轮询尚未更新时按钮再次开放。
-async function gpuRequest(action,body){
-  gpuOperation.value=action;gpuVersion++
-  try{state.value.gpu=await request(`/gpu/${action}`,{method:'POST',...(body ? {body} : {})})}
-  finally{gpuVersion++;gpuOperation.value=''}
-}
-function downloadGpu(){if(busy.value || gpuActive.value || state.value.gpu?.installed || !state.value.gpu?.supported)return;return act(()=>gpuRequest('download'))}
-function pauseGpu(){if(!gpuActive.value)return;return act(()=>gpuRequest('pause'))}
-function openImport(id){if(busy.value || (id==='gpu' ? gpuActive.value : modelActive(id)))return;importId.value=id;importPath.value='';dialog.value='import'}
+function openImport(id){if(busy.value || modelActive(id))return;importId.value=id;importPath.value='';dialog.value='import'}
 const importFiles=()=>{
   if(importActive.value)return
-  return act(async()=>{if(importId.value==='gpu')await gpuRequest('import',{path:importPath.value});else await request(`/models/${importId.value}/import`,{method:'POST',body:{path:importPath.value}});dialog.value=''},'离线文件已提交校验')
+  return act(async()=>{await request(`/models/${importId.value}/import`,{method:'POST',body:{path:importPath.value}});dialog.value=''},'离线文件已提交校验')
 }
 function trapFocus(event){const items=[...dialogRef.value.querySelectorAll('button:not(:disabled),input:not(:disabled),[href],select,[tabindex="0"]')];const first=items[0],last=items.at(-1);if(!first){event.preventDefault();return}if(event.shiftKey && (document.activeElement===first || document.activeElement===dialogRef.value)){event.preventDefault();last.focus()}else if(!event.shiftKey && (document.activeElement===last || document.activeElement===dialogRef.value)){event.preventDefault();first.focus()}}
 watch(dialog,async(value,oldValue)=>{dialogError.value='';if(value){if(!oldValue)previousFocus=document.activeElement;await nextTick();dialogRef.value?.focus()}else{previousFocus?.focus?.()}})
@@ -391,7 +366,7 @@ watch(account,async()=>{
   await refresh(true,true)
   if(current===account.value)subscribe()
 })
-onMounted(async()=>{await refresh(true);subscribe();if(account.value)chats.value=await request('/conversations',{},true).catch(()=>[]);gpuDevices.value=await request('/device/list').catch(()=>[]);timer=setInterval(()=>{now.value=Date.now()/1000;refresh()},1500)})
+onMounted(async()=>{await refresh(true);subscribe();if(account.value)chats.value=await request('/conversations',{},true).catch(()=>[]);timer=setInterval(()=>{now.value=Date.now()/1000;refresh()},1500)})
 onBeforeUnmount(()=>{clearInterval(timer);stopEvents?.()})
 </script>
 

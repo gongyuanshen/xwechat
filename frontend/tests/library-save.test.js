@@ -200,6 +200,31 @@ it('attachment save explains preservation before submitting and does not fake a 
   expect(wrapper.emitted('saved')).toBeUndefined();
 });
 
+it('saves extracted text by cache identity and retains the form when the cached result changed', async () => {
+  api.createItem.mockRejectedValue({ data: { detail: '提取结果已变化，请重新查看全文后保存。' } });
+  wrapper = mount(LibrarySaveDialog, { props: { open: true, account: 'a', item: {
+    kind: 'extracted_text', title: '扫描件.pdf', source: { username: 'friend', anchor: 'stable' }, cache_token: 'a'.repeat(64),
+  } } });
+  await flushPromises();
+  expect(wrapper.text()).toContain('保存已识别或提取的全文与出处');
+  expect(wrapper.text()).toContain('不包含附件文件');
+  expect(wrapper.find('button[type="submit"]').text()).toBe('保存文字');
+  const title = wrapper.findAll('label').find(label => label.text() === '标题').find('input');
+  await title.setValue('保留的全文标题');
+  await wrapper.find('textarea').setValue('需要人工核对');
+  await wrapper.find('select').setValue('folder');
+  await wrapper.find('form').trigger('submit'); await flushPromises();
+  expect(api.createItem).toHaveBeenCalledWith('a', {
+    kind: 'extracted_text', source: { username: 'friend', anchor: 'stable' }, cache_token: 'a'.repeat(64),
+    folder_id: 'folder', title: '保留的全文标题', notes: '需要人工核对', tags: [],
+  });
+  expect(wrapper.find('[role=alert]').text()).toBe('提取结果已变化，请重新查看全文后保存。');
+  expect(wrapper.find('select').element.value).toBe('folder');
+  expect(title.element.value).toBe('保留的全文标题');
+  expect(wrapper.find('textarea').element.value).toBe('需要人工核对');
+  expect(wrapper.emitted('saved')).toBeUndefined();
+});
+
 it('privacy mode covers save fields while keeping save and cancel available', async () => {
   wrapper = mount(LibrarySaveDialog, { props: { open: true, account: 'a', item: { kind: 'report', run_id: 'run' } } });
   await flushPromises();
