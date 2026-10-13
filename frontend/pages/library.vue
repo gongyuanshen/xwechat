@@ -2,14 +2,17 @@
   <main class="library-page theme-scope">
     <header>
       <h1>本地资料夹</h1>
-      <span>聊天原文、附件、识别/提取文字与 AI 报告的本地副本</span>
+      <span>聊天原文、附件、识别/提取文字与 AI 报告 · 专题版本与变化对照</span>
+      <div class="library-account-toolbar"><label>应用资料账号<select :value="selectedAccount" aria-label="应用资料账号" :class="{ 'privacy-blur': privacyMode }" :disabled="busy || dossierBusy || accounts.loading" @change="changeAccount"><option v-if="!accounts.accounts.length" value="">暂无资料账号</option><option v-for="name in accounts.accounts" :key="name" :value="name">{{ name }}</option></select></label><button :disabled="loading || busy || dossierBusy || accounts.loading" @click="refresh">刷新资料</button></div>
     </header>
     <p v-if="accounts.error || error" class="library-error" role="alert">
-      {{ accounts.error || error }} <button @click="load">重试加载</button>
+      {{ accounts.error || error }} <button @click="refresh">重试加载</button>
     </p>
-    <p v-if="!selectedAccount">请先选择已解密或已导入的微信账号。</p>
-    <div v-else class="library-layout" :class="{ 'has-detail': selected }">
+    <p v-if="!selectedAccount">暂无应用资料账号。可以导入微信账号，或在设置的“资料备份”中恢复。</p>
+    <p v-else-if="!canOpenChat" class="library-account-note">当前账号的应用资料可直接使用；打开原消息或重新搜索前，请导入对应账号的聊天数据。</p>
+    <div v-if="selectedAccount" class="library-layout" :class="{ 'has-detail': selected || showDossier }">
       <aside>
+        <SavedSearches :account="selectedAccount" />
         <h2>资料夹</h2>
         <form class="inline" @submit.prevent="createFolder">
           <input
@@ -23,6 +26,7 @@
         <button
           class="folder"
           :class="{ active: !folderId }"
+          :disabled="dossierBusy"
           @click="chooseFolder('')"
         >
           全部资料</button
@@ -31,6 +35,7 @@
           :key="f.id"
           class="folder"
           :class="{ active: folderId === f.id }"
+          :disabled="dossierBusy"
           @click="chooseFolder(f.id)"
         >
           <span :class="{ 'privacy-blur': privacyMode }">{{ f.name }}</span>
@@ -46,10 +51,11 @@
             @click="renameFolder"
           >
             重命名</button
-          ><button :disabled="busy" @click="removeFolder">删除资料夹</button>
+          ><button :disabled="busy || dossierBusy" @click="removeFolder">删除资料夹</button>
         </div>
       </aside>
       <section class="item-list">
+        <button v-if="folderId" class="dossier-entry" :disabled="busy || dossierBusy" @click="openDossier">专题档案 · 版本与变化</button>
         <input
           v-model="query"
           :class="{ 'privacy-blur': privacyMode }"
@@ -58,13 +64,14 @@
         />
         <p v-if="loading" role="status">正在加载资料…</p>
         <p v-else-if="!filtered.length">
-          暂无资料。可从聊天消息、附件中心或 AI 回答保存。
+          暂无资料。可从聊天消息、“搜索 → 附件”或 AI 回答保存。
         </p>
         <button
           v-for="item in filtered"
           :key="item.id"
           class="item"
           :class="{ active: selected?.id === item.id }"
+          :disabled="dossierBusy"
           @click="select(item)"
         >
           <strong :class="{ 'privacy-blur': privacyMode }">{{ item.title }}</strong
@@ -232,6 +239,9 @@
           </div></template
         >
       </section>
+      <LibraryDossier v-else-if="showDossier && folderId" :key="`${selectedAccount}:${folderId}`" class="detail"
+        :account="selectedAccount" :folder-id="folderId" :privacy-mode="privacyMode" :busy="busy" :revision="dossierRevision"
+        @locate="locate" @close="closeDossier" @dirty="dossierDirty = $event" @busy="dossierBusy = $event" />
       <section v-else class="detail empty">
         选择一份资料查看内容与来源。
       </section>
@@ -240,19 +250,22 @@
 </template>
 <script setup>
 import AgentAnswer from "~/components/chat/AgentAnswer.vue";
+import LibraryDossier from "~/components/library/LibraryDossier.vue";
 import "~/assets/css/agent.css";
 import { useLibraryApi } from "~/composables/useLibraryApi";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { isNavigationFailure } from "vue-router";
-import { useChatAccountsStore } from "~/stores/chatAccounts";
+import { useApplicationAccountsStore } from "~/stores/applicationAccounts";
+import SavedSearches from '~/components/library/SavedSearches.vue';
 import { usePrivacyStore } from "~/stores/privacy";
 import { formatFileSize } from "~/lib/chat/formatters";
 import { saveAttachmentDownload } from "~/utils/attachmentDownload";
 useHead({ title: "本地资料夹 - xwechat" });
-const accounts = useChatAccountsStore(),
-  { selectedAccount } = storeToRefs(accounts),
+const accounts = useApplicationAccountsStore(),
+  { selectedAccount, revisions } = storeToRefs(accounts),
   api = useLibraryApi();
+const canOpenChat = computed(() => accounts.chatAccounts.includes(selectedAccount.value));
 const { privacyMode } = storeToRefs(usePrivacyStore());
 const folders = ref([]),
   items = ref([]),
@@ -268,9 +281,17 @@ const folders = ref([]),
   savedNotice = ref(""),
   editingReport = ref(false);
 const showAttachmentPreview = ref(false), attachmentPreviewError = ref('');
+const showDossier = ref(false), dossierDirty = ref(false), dossierBusy = ref(false);
+const dossierRevision = computed(() => JSON.stringify([
+  revisions.value[selectedAccount.value] || 0,
+  folders.value.find(folder => folder.id === folderId.value)?.name,
+  items.value.filter(item => item.folder_id === folderId.value).map(item => [item.id, item.updated_at]),
+]));
 watch(selected, () => { showAttachmentPreview.value = false; attachmentPreviewError.value = ''; });
 const itemKind = (item) => ({ report: 'AI 报告', message: '聊天原文', attachment: '附件副本', extracted_text: '识别/提取文字' })[item.kind];
 const navigation = useState("ai-navigation-target", () => null);
+const libraryNavigation = useState('library-navigation-target', () => null);
+let pendingLibraryTarget = null;
 let generation = 0;
 let loadRequest = 0;
 const filtered = computed(() =>
@@ -333,9 +354,13 @@ watch(
   selectedAccount,
   () => {
     generation++;
+    if (pendingLibraryTarget?.account !== selectedAccount.value) pendingLibraryTarget = null;
     folders.value = [];
     items.value = [];
     selected.value = null;
+    showDossier.value = false;
+    dossierDirty.value = false;
+    dossierBusy.value = false;
     folderId.value = "";
     error.value = "";
     query.value = "";
@@ -346,9 +371,32 @@ watch(
   },
   { immediate: true, flush: "sync" },
 );
-function chooseFolder(id) {
-  if (dirty.value && !window.confirm("放弃尚未保存的修改？")) return;
+watch(() => revisions.value[selectedAccount.value], () => { if (selectedAccount.value) void load(); });
+watch(libraryNavigation, target => {
+  if (!target?.item_id) return;
+  libraryNavigation.value = null;
+  if ((dirty.value || dossierDirty.value) && !window.confirm('打开资料会放弃尚未保存的修改，是否继续？')) return;
+  if (!accounts.accounts.includes(target.account)) { error.value = '资料所属账号不可用，请刷新账号后重试。'; return; }
   selected.value = null;
+  showDossier.value = false;
+  dossierDirty.value = false;
+  pendingLibraryTarget = target;
+  if (selectedAccount.value !== target.account) accounts.setSelectedAccount(target.account);
+  else void load();
+}, { immediate: true });
+function changeAccount(event) {
+  if ((dirty.value || dossierDirty.value) && !window.confirm('切换账号会放弃尚未保存的修改，是否继续？')) { event.target.value = selectedAccount.value; return; }
+  accounts.setSelectedAccount(event.target.value);
+}
+async function refresh() {
+  if (await accounts.ensureLoaded({ force: true })) await load();
+}
+function chooseFolder(id) {
+  if ((dirty.value || dossierDirty.value) && !window.confirm("放弃尚未保存的修改？")) return;
+  selected.value = null;
+  dossierDirty.value = false;
+  dossierBusy.value = false;
+  showDossier.value = Boolean(id);
   folderId.value = id;
   savedNotice.value = "";
   renameName.value = folders.value.find((f) => f.id === id)?.name || "";
@@ -368,17 +416,31 @@ async function load() {
     if (token === generation && request === loadRequest) {
       folders.value = result[0];
       items.value = result[1];
+      if (pendingLibraryTarget?.account === account) {
+        const target = pendingLibraryTarget;
+        pendingLibraryTarget = null;
+        const item = items.value.find(item => item.id === target.item_id);
+        if (!item) throw new Error('资料不存在，可能已被删除或恢复后的资料已变化，请返回搜索重新查询。');
+        if ((dirty.value || dossierDirty.value) && !window.confirm('打开资料会放弃尚未保存的修改，是否继续？')) return;
+        folderId.value = item.folder_id;
+        query.value = '';
+        select(item, true);
+      }
     }
   } catch (e) {
-    if (token === generation && request === loadRequest)
+    if (token === generation && request === loadRequest) {
+      pendingLibraryTarget = null;
       error.value = message(e);
+    }
   } finally {
     if (token === generation && request === loadRequest) loading.value = false;
   }
 }
 function select(item, confirmed = false) {
-  if (!confirmed && dirty.value && !window.confirm("放弃尚未保存的修改？"))
+  if (!confirmed && (dirty.value || dossierDirty.value) && !window.confirm("放弃尚未保存的修改？"))
     return;
+  showDossier.value = false;
+  dossierDirty.value = false;
   selected.value = item;
   editingReport.value = false;
   draft.value = {
@@ -395,6 +457,17 @@ function backToList() {
   if (dirty.value && !window.confirm("放弃尚未保存的修改？")) return;
   selected.value = null;
   savedNotice.value = "";
+}
+function openDossier() {
+  if (dirty.value && !window.confirm("放弃尚未保存的修改？")) return;
+  selected.value = null;
+  showDossier.value = true;
+}
+function closeDossier() {
+  if (dossierDirty.value && !window.confirm("放弃尚未保存的版本说明？")) return;
+  showDossier.value = false;
+  dossierDirty.value = false;
+  dossierBusy.value = false;
 }
 async function perform(action, onRecordDeleted) {
   const token = generation,
@@ -434,10 +507,12 @@ function renameFolder() {
 }
 function removeFolder() {
   const id = folderId.value;
-  if (!window.confirm("删除资料夹及其中保存的副本？微信原记录不会被删除。"))
+  if (!window.confirm("删除资料夹、全部历史版本及其中保存的副本？其他资料夹仍引用的附件会保留，微信原记录不会被删除。"))
     return;
   const clearDeleted = () => {
     folderId.value = "";
+    showDossier.value = false;
+    dossierDirty.value = false;
     if (selected.value?.folder_id === id) selected.value = null;
     folders.value = folders.value.filter((f) => f.id !== id);
     items.value = items.value.filter((i) => i.folder_id !== id);
@@ -449,7 +524,7 @@ function removeFolder() {
 }
 function removeItem() {
   const id = selected.value.id;
-  if (!window.confirm("删除此保存副本？微信原记录不会被删除。")) return;
+  if (!window.confirm("从当前资料中删除此副本？已保存的专题历史版本仍会保留这份资料及附件，微信原记录不会被删除。")) return;
   const clearDeleted = () => {
     items.value = items.value.filter((i) => i.id !== id);
     if (selected.value?.id === id) selected.value = null;
@@ -505,9 +580,11 @@ function downloadAttachment() {
   });
 }
 function locate(source) {
+  if (!canOpenChat.value) { error.value = '请先导入对应账号的聊天数据，再打开原消息。已恢复的资料副本可以继续查看。'; return; }
+  if (dossierDirty.value && !window.confirm("打开原消息会离开当前页，放弃尚未保存的版本说明？")) return;
   return perform(async (account, current) => {
-    const target = { ...source, kind: "source", account };
-    navigation.value = target;
+    navigation.value = { ...source, kind: "source", account };
+    const target = navigation.value;
     try {
       const result = await navigateTo("/chat");
       if (result === false || isNavigationFailure(result))
@@ -519,9 +596,15 @@ function locate(source) {
   });
 }
 onMounted(() => accounts.ensureLoaded());
+onUnmounted(() => { generation++; loadRequest++; });
 </script>
 <style scoped>
+.library-account-toolbar { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.library-account-toolbar label { display: grid; gap: 4px; min-width: 0; }
+.library-account-toolbar select { max-width: 100%; }
+.library-account-note { margin: 8px 24px; color: var(--app-text-secondary); }
 .saved-attachment { margin: 16px 0; }
+.dossier-entry { width: 100%; margin-bottom: 16px; text-align: left; }
 .saved-attachment p { margin: 8px 0; }
 .saved-attachment img, .saved-attachment video { display: block; max-width: 100%; max-height: 400px; margin: 12px 0; }
 .extraction-summary { margin: 12px 0; line-height: 1.7; overflow-wrap: anywhere; }

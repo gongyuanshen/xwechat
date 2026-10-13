@@ -33,6 +33,8 @@ async def attachments(account: str, kind: Literal['all', 'file', 'image', 'video
                       offset: int = Query(0, ge=0), limit: int = Query(40, ge=1, le=200)):
     if start_time is not None and end_time is not None and start_time > end_time:
         raise HTTPException(422, '开始时间不能晚于结束时间')
+    if len(q.split()) > 8:
+        raise HTTPException(422, '每次最多搜索 8 个词，空格分隔的词需全部命中。')
     owner = account_name(account)
     return await account_to_thread(_resolve_account_dir(owner), browse_attachments, get_ai_service().store, owner,
         kind=kind, q=q.strip(), search_in=search_in, username=username, sender=sender,

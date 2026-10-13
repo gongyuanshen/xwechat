@@ -24,6 +24,28 @@ beforeEach(() => {
 afterEach(() => { wrapper?.unmount(); wrapper = null; vi.unstubAllGlobals(); delete process.client })
 
 describe('独立 AI 助手路由入口', () => {
+  it.each([['事项', '/matters'], ['聊天时光机', '/time-machine']])('%s 可从侧栏进入并标记当前页', async (label, path) => {
+    route.path = path
+    wrapper = mount(SidebarRail, { global: { stubs: { GlobalExportDialog: true, ErrorNotice: true } } })
+    await flushPromises()
+    const entry = wrapper.find(`button[aria-label="${label}"]`)
+    expect(entry.attributes('aria-current')).toBe('page')
+    await entry.trigger('click')
+    expect(navigate).toHaveBeenCalledWith(path)
+    route.path = '/chat'; await flushPromises()
+    expect(entry.attributes('aria-current')).toBeUndefined()
+  })
+  it.each(['/time-machine'])('%s 没有账号时显示数据准备提示', async path => {
+    route.path = path
+    wrapper = mount(App, { global: { stubs: { SidebarRail: true, DesktopTitleBar: true, NuxtPage: true, SettingsDialog: true, GuideDialog: Guide } } })
+    await flushPromises()
+    expect(wrapper.find('[role="dialog"]').text()).toBe('数据准备提示')
+  })
+  it('应用资料页面无需先准备聊天账号', async () => {
+    route.path='/matters';
+    wrapper=mount(App,{global:{stubs:{SidebarRail:true,DesktopTitleBar:true,NuxtPage:true,SettingsDialog:true,GuideDialog:Guide}}});
+    await flushPromises(); expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+  })
   it('侧栏图标定位到 /agent，并随路由切换正确显示当前页', async () => {
     wrapper = mount(SidebarRail, { global: { stubs: { GlobalExportDialog: true, ErrorNotice: true } } })
     await flushPromises()

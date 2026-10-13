@@ -100,6 +100,14 @@ from .routers.ai_agent import router as _ai_agent_router
 app.include_router(_ai_agent_router)
 from .routers.library import router as _library_router
 app.include_router(_library_router)
+from .routers.unified_search import router as _unified_search_router
+app.include_router(_unified_search_router)
+from .routers.data_backup import router as _data_backup_router
+app.include_router(_data_backup_router)
+from .routers.matters import router as _matters_router
+app.include_router(_matters_router)
+from .routers.time_machine import router as _time_machine_router
+app.include_router(_time_machine_router)
 from .routers.attachments import router as _attachments_router
 app.include_router(_attachments_router)
 from .routers.local_search import router as _local_search_router

@@ -48,7 +48,10 @@ The table below describes features in the current source code. Previously downlo
 | Multiple accounts and synchronization | Switch between local accounts; periodically synchronize verified snapshots and refresh manually for accounts bound to a source directory and key; browse imported historical archives independently |
 | Chat browsing and search | Browse private chats, group chats, images, videos, voice messages, stickers, replies, merged chat records, and more; search by keyword, conversation, sender, date, and message type; view context, calendar heatmaps, and floating history windows |
 | Personal library and saved searches | Save search filters, original chat messages, attachment copies, and completed Agent reports per account; filter by message type and rolling date range; manage folders, notes, tags, and manual verification; edit report copies and export Markdown/HTML; [guide (Chinese)](docs/personal-library.md) |
-| Cross-chat attachment center | Find files, images, and videos by name, type, conversation, sender, and date; explicitly extract document text or run local OCR on static images and PDF image content; view/copy full text, export TXT, save text copies, and search cached text; preview, download, locate original messages, and add items to the personal library |
+| Search and attachments | One Search entry for chats, extracted attachment text, OCR, and library notes, with source and coverage details; switch to Attachments with the same account, keywords, and dates to browse, filter, preview, download, extract text, run local OCR, or save copies; [guide (Chinese)](docs/unified-search.md) |
+| Application data backup and restore | Back up matters, folders, notes, reports, saved searches, topic versions, and referenced attachment copies together; restore missing records to the active application while retaining local versions on conflicts; saved library data remains usable without the original chat database; [guide (Chinese)](docs/application-data-backup.md) |
+| Matters and topic history | Save evidence-backed to-dos and explicitly confirmed deadlines or rescheduling, with optional reminders while the app runs; save topic versions and compare added, removed, or changed materials; [matters guide (Chinese)](docs/matters.md) |
+| Chat time machine | Compare messages from the same day across recorded years, or browse a chosen date range in year columns, with source navigation and index freshness details; [guide (Chinese)](docs/time-machine.md) |
 | Disk usage management | View per-account usage for databases, media, indexes, snapshots, and library copies in Settings; explicitly remove rebuildable full-text indexes while protecting original messages, attachments, snapshots, and running tasks; [guide (Chinese)](docs/performance-storage.md) |
 | Contacts and service accounts | View contact categories, profiles, group members, friend verification records, and service account messages; export contact profiles |
 | Moments | Browse the local timeline, historical cover images, images, videos, Live Photos, likes, and comments; perform full and incremental exports |
@@ -70,7 +73,7 @@ The table below describes features in the current source code. Previously downlo
 
 Check [GitHub Releases](https://github.com/gongyuanshen/xwechat/releases) for published versions and their notes. Windows x64 packages are available in the following forms:
 
-The current project version is `1.3.0`. Version numbering for this independent project starts at `1.0.0`. Refer to the Releases page for the packages actually published and their versions.
+The current project version is `1.4.0`. Version numbering for this independent project starts at `1.0.0`. Refer to the Releases page for the packages actually published and their versions.
 
 - **Installer**: Run `xwechat-<version>-Setup.exe` and select a directory in the installation wizard.
 - **Portable package**: Fully extract `xwechat-<version>-Setup.zip` and run `xwechat.exe` from the extracted directory. Keep all resources in that directory.
@@ -93,11 +96,13 @@ Choose **“Import backup”** on the home page and select an original account Z
 
 Review the detected account, databases, and resources before confirming the import. Data is copied into the application’s local data area; an existing account with the same name is backed up first, and the original backup directory is not modified directly. Ordinary chat reading exports and complete account archives serve different purposes. To import an account, use an account archive or a decrypted directory that meets the requirements.
 
-The chat search sidebar can save frequently used filters, including message type and rolling date ranges. The original-message context menu offers **“Add to library”**, and completed Agent answers offer **“Save report”**. **“Attachment center”** in the sidebar provides cross-chat attachment search, document text extraction, and explicit local OCR for individual items or the current page; **“Personal library”** manages and exports copies. See the [guide (Chinese)](docs/personal-library.md) for supported formats, search coverage, and backup boundaries.
+The chat search sidebar can save frequently used filters, including message type and rolling date ranges. The original-message context menu offers **“Add to library”**, and completed Agent answers offer **“Save report”**. Open **“Search”** in the sidebar to search all content or switch to **“Attachments”** for browsing, extraction, and explicit local OCR; both views share account, keyword, and date controls. **“Personal library”** manages copies and topic versions. See the [guide (Chinese)](docs/personal-library.md) for supported formats and coverage.
+
+Use **“Settings → Data backup”** for application-created matters, notes, reports, saved searches, topic versions, and attachment copies. Restore fills missing data in the active application and keeps local records when they conflict. This backup is separate from the chat database/resource archive; see the [backup guide (Chinese)](docs/application-data-backup.md).
 
 ## Export and annual sharing
 
-For chat exports, select conversations, dates, and message types, then choose HTML, JSON, TXT, or Excel and include local media as needed. Moments supports full and incremental exports; contacts, favorites, and other pages provide their own export entry points. For a complete backup, use **“Export archive”** on the home page.
+For chat exports, select conversations, dates, and message types, then choose HTML, JSON, TXT, or Excel and include local media as needed. Moments supports full and incremental exports; contacts, favorites, and other pages provide their own export entry points. To back up account databases and resources, use **“Export archive”** on the home page; save application-created materials separately through **“Settings → Data backup”**.
 
 - Depending on the selected options, export can obtain an image key, download available media, or generate local voice transcriptions. These steps require the corresponding client, resources, network connection, or a ready transcription model.
 - Attachments absent from local storage are recorded as missing; this does not guarantee that all historical attachments are complete. Remote images not packaged as local files in HTML, and external links, may still access the network when opened.

@@ -3,7 +3,7 @@ export const createAiNavigationConsumer = ({ navigation, account, isActive, ensu
   let pendingTarget = null
   return async () => {
     const target = navigation.value
-    if (!isActive() || !target || pendingTarget === target) return
+    if (!isActive() || !target || target.matter_id || pendingTarget === target) return
     pendingTarget = target
     const isWrapped = target.origin === 'wrapped'
     const component = target.kind === 'source' ? 'source' : 'notification'
@@ -30,7 +30,7 @@ export const createAiNavigationConsumer = ({ navigation, account, isActive, ensu
     } catch (error) {
       if (!currentAccount()) return
       if (!isWrapped) diagnostic('navigation.failed', { task_id: target.task_id, component })
-      const retryMessage = isWrapped ? '请返回年度总结后重新点击来源定位。' : '请返回 AI 助手后重新点击来源定位。'
+      const retryMessage = isWrapped ? '请返回年度总结后重新点击来源定位。' : target.origin === 'search' ? '请返回搜索后重新点击来源定位。' : '请返回 AI 助手后重新点击来源定位。'
       showError(`${error?.message || (isWrapped ? '年度总结来源定位失败' : 'AI 来源定位失败')}。${retryMessage}`)
     } finally {
       if (pendingTarget === target) pendingTarget = null

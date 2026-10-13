@@ -20,6 +20,18 @@ afterEach(() => {
   wrapper?.unmount();
   vi.unstubAllGlobals();
 });
+it('masks private save errors without replacing their detail', async () => {
+  const detail = '无法保存 C:/private/account-a/私密附件.txt';
+  state.privacy.value = true;
+  api.listFolders.mockRejectedValue(new Error(detail));
+  wrapper = mount(LibrarySaveDialog, { props: { open: true, account: 'a', item: { kind: 'attachment' } } });
+  await flushPromises();
+  const alert = wrapper.get('[role=alert]');
+  expect(alert.text()).toContain(detail);
+  expect(alert.element.closest('.privacy-blur')).not.toBeNull();
+  state.privacy.value = false; await flushPromises();
+  expect(alert.element.closest('.privacy-blur')).toBeNull();
+});
 it("failure surfaces and run id is authoritative", async () => {
   api.createItem.mockRejectedValue(new Error("写入失败"));
   wrapper = mount(LibrarySaveDialog, {

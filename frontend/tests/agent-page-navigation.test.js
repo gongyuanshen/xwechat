@@ -15,6 +15,21 @@ const setup = (target = { kind: 'source', account: 'a', username: 'friend', anch
 }
 
 describe('AI 来源与任务通知导航', () => {
+  it('统一搜索定位失败返回正确入口', async () => {
+    const state = setup({ kind: 'source', origin: 'search', account: 'a', username: 'friend', anchor: '1' })
+    state.locateSource.mockRejectedValue(new Error('原消息已不可用'))
+    await state.consume()
+    expect(state.showError).toHaveBeenCalledWith(expect.stringContaining('返回搜索'))
+    expect(state.showError.mock.calls[0][0]).not.toContain('返回 AI 助手')
+  })
+  it('事项通知由事项页面消费，活动聊天页不抢先清除或切换账号', async () => {
+    const target = { account: 'b', matter_id: 'matter-1' }, state = setup(target)
+    await state.consume()
+    expect(state.navigation.value).toEqual(target)
+    expect(state.ensureLoaded).not.toHaveBeenCalled()
+    expect(state.selectAccount).not.toHaveBeenCalled()
+    expect(state.openTask).not.toHaveBeenCalled()
+  })
   it('来源只定位聊天原消息，不打开任务侧栏', async () => {
     const state = setup(); await state.consume()
     expect(state.locateSource).toHaveBeenCalledWith(expect.objectContaining({ kind: 'source', anchor: '1' }))

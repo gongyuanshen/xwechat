@@ -512,8 +512,11 @@ class AIService:
         return self.create_task(options, rule, prepared)
 
     async def scheduler(self):
+        from ..matter_service import MatterService
+        matters = MatterService(self, lambda account: account)
         while not self.stopping:
             try:
+                matters.dispatch_due()
                 if self.worker is None or self.worker.done():
                     for task in self.store.tasks_in_status(["failed", "partial"]):
                         if task["status"] in {"failed", "partial"} and task.get("retry_at") and task["retry_at"] <= time.time():

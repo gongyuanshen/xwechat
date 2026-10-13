@@ -2737,7 +2737,7 @@ def _make_snippet(text: str, tokens: list[str], *, max_len: int = 90) -> str:
         out = "…" + out
     if right < len(s):
         out = out + "…"
-    if best_tok and best_tok not in out:
+    if best_tok and best_tok.lower() not in out.lower():
         out = s[:max_len].strip()
     return out
 

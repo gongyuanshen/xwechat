@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from starlette.responses import FileResponse
 
 from .account_workers import account_to_thread
-from .chat_helpers import _resolve_account_dir, _load_contact_rows, _pick_display_name
+from .chat_helpers import _resolve_account_dir, _load_contact_rows, _pick_display_name, _make_search_tokens, _match_tokens, _make_snippet
 from .chat_search_index import get_chat_search_index_db_path, get_chat_search_index_status, start_chat_search_index_build
 from .snapshot_registry import resolve_account_database_dir
 from .local_ocr import IMAGE_SUFFIXES, OcrUnavailableError
@@ -53,7 +53,7 @@ def extraction_state(body, *, kind='file', name=''):
 
 def extraction_source_matches(method, signature, account, username, message):
     from .ai.agent_tools import attachment_message_signature, normalize
-    if method not in {'document_text', 'local_ocr'}:
+    if not isinstance(method, str) or method not in {'document_text', 'local_ocr'}:
         raise ValueError(f'附件正文缓存来源无效：{method}')
     # Released document-text caches predate source signatures. OCR must be
     # bound to the original message and its media identity.
@@ -64,19 +64,14 @@ def extraction_source_matches(method, signature, account, username, message):
     return signature == attachment_message_signature(normalize(account, username, message))
 
 
-def read_extracted_text(db, account, username, message):
-    """Read the full, source-checked cache in the caller's account transaction."""
-    row = db.execute("SELECT body,updated FROM records WHERE kind='local_media_text' AND id=? AND account=?",
-                     (attachment_key(account, username, message['id']), account)).fetchone()
-    if row is None:
-        raise HTTPException(404, '尚无提取或识别结果，请先提取正文或识别图片文字。')
-    cached = json.loads(row['body'])
+def validate_extracted_text(cached):
+    """Validate full cache content and its extraction metadata at the storage edge."""
+    if not isinstance(cached, dict):
+        raise ValueError('附件正文缓存损坏')
     state = extraction_state(cached)
     if not isinstance(cached.get('text'), str):
         raise ValueError('附件正文缓存损坏，缺少完整文字')
     method = state['extraction_method']
-    if not extraction_source_matches(method, cached.get('message_signature'), account, username, message):
-        raise HTTPException(409, '原消息或附件来源已变化，请重新提取或识别后查看文字。')
     digest, version = cached.get('file_hash'), cached.get('version')
     if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest) or type(version) is not int or version < 1:
         raise ValueError('附件正文缓存损坏，输入摘要或版本无效')
@@ -85,8 +80,20 @@ def read_extracted_text(db, account, username, message):
     if type(units) is not int or units < 0 or (method == 'local_ocr' and (not isinstance(engine, str) or not engine)):
         raise ValueError('附件正文缓存损坏，OCR 来源无效')
     return {**state, 'text': cached['text'], 'complete': cached.get('complete') is True,
-            'file_hash': digest, 'version': version, 'ocr_units': units, 'ocr_engine': engine,
-            'cache_token': hashlib.sha256(row['body'].encode()).hexdigest(), 'updated': row['updated']}
+            'file_hash': digest, 'version': version, 'ocr_units': units, 'ocr_engine': engine}
+
+
+def read_extracted_text(db, account, username, message):
+    """Read the full, source-checked cache in the caller's account transaction."""
+    row = db.execute("SELECT body,updated FROM records WHERE kind='local_media_text' AND id=? AND account=?",
+                     (attachment_key(account, username, message['id']), account)).fetchone()
+    if row is None:
+        raise HTTPException(404, '尚无提取或识别结果，请先提取正文或识别图片文字。')
+    cached = json.loads(row['body'])
+    content = validate_extracted_text(cached)
+    if not extraction_source_matches(content['extraction_method'], cached.get('message_signature'), account, username, message):
+        raise HTTPException(409, '原消息或附件来源已变化，请重新提取或识别后查看文字。')
+    return {**content, 'cache_token': hashlib.sha256(row['body'].encode()).hexdigest(), 'updated': row['updated']}
 
 
 def ready_index(account_dir):
@@ -105,6 +112,7 @@ def ready_index(account_dir):
 
 def browse_attachments(store, account, *, kind='all', q='', search_in='name', username='', sender='',
                        start_time=None, end_time=None, offset=0, limit=40, filters=False):
+    tokens = _make_search_tokens(q)
     def source_matches(method, signature, user, payload):
         return extraction_source_matches(method, json.loads(signature) if signature is not None else None,
                                          account, user, json.loads(payload))
@@ -120,6 +128,9 @@ def browse_attachments(store, account, *, kind='all', q='', search_in='name', us
         db.execute('ATTACH DATABASE ? AS ai', (store.path.resolve().as_uri() + '?mode=ro',))
         db.create_function('attachment_key', 2, lambda user, anchor: attachment_key(account, user, anchor), deterministic=True)
         db.create_function('attachment_source_matches', 4, source_matches, deterministic=True)
+        db.create_function('attachment_matches', -1, lambda *texts: _match_tokens('\n'.join(texts), tokens), deterministic=True)
+        db.create_function('attachment_excerpt', 1,
+                           lambda text: _make_snippet(text, tokens if search_in in {'body', 'all'} else [], max_len=598), deterministic=True)
         where = ["m.render_type IN ('file','image','video')", "m.db_stem <> 'anti_revoke'"]
         params = []
         for field, value in (('m.render_type', kind if kind != 'all' else ''), ('m.username', username), ('m.sender_username', sender)):
@@ -150,14 +161,13 @@ def browse_attachments(store, account, *, kind='all', q='', search_in='name', us
                               + join + 'WHERE ' + scope + " AND m.render_type IN ('file','image')", [account, *params]).fetchone()
         result['coverage'] = {key: int(coverage[key] or 0) for key in ('total_files', 'total_images', 'complete', 'partial')}
         result['coverage']['message'] = '正文搜索仅覆盖已提取的文档文字和本地 OCR 结果；未提取或未识别的内容不在正文范围内。'
-        if q:
-            name_match = "instr(lower(coalesce(json_extract(f.payload_json,'$.title'),'')),lower(?))>0"
-            body_match = "instr(lower(coalesce(json_extract(e.body,'$.text'),'')),lower(?))>0"
-            predicates = [name_match] if search_in == 'name' else [body_match] if search_in == 'body' else [name_match, body_match]
-            where.append('(' + ' OR '.join(predicates) + ')')
-            params.extend([q] * len(predicates))
+        if tokens:
+            name_text = "coalesce(json_extract(f.payload_json,'$.title'),'')"
+            body_text = "coalesce(json_extract(e.body,'$.text'),'')"
+            fields = [name_text] if search_in == 'name' else [body_text] if search_in == 'body' else [name_text, body_text]
+            where.append('attachment_matches(' + ','.join(fields) + ')')
         extraction_projection = ("CASE WHEN e.body IS NULL THEN NULL ELSE json_object("
-            "'text_excerpt',CASE WHEN json_type(e.body,'$.text')='text' THEN substr(json_extract(e.body,'$.text'),max(1,instr(lower(json_extract(e.body,'$.text')),lower(?))-100),600) END,"
+            "'text_excerpt',CASE WHEN json_type(e.body,'$.text')='text' THEN attachment_excerpt(json_extract(e.body,'$.text')) END,"
             "'text_characters',length(json_extract(e.body,'$.text')), 'complete',json(CASE WHEN json_extract(e.body,'$.complete') IS 1 THEN 'true' ELSE 'false' END),"
             "'status',json_extract(e.body,'$.status'),'message',coalesce(json_extract(e.body,'$.message'),''),"
             "'extraction_method',coalesce(json_extract(e.body,'$.extraction_method'),'document_text'),'ocr_units',coalesce(json_extract(e.body,'$.ocr_units'),0),"
@@ -165,7 +175,7 @@ def browse_attachments(store, account, *, kind='all', q='', search_in='name', us
             "'skipped_images',coalesce(json_extract(e.body,'$.skipped_images'),0)) END AS extraction_body ")
         rows = db.execute('SELECT m.*,f.payload_json,' + extraction_projection + join + 'WHERE ' + ' AND '.join(where)
                           + ' ORDER BY m.create_time DESC,m.sort_seq DESC,m.local_id DESC,m.rowid DESC LIMIT ? OFFSET ?',
-                          [q if search_in in {'body', 'all'} else '', account, *params, limit + 1, offset]).fetchall()
+                          [account, *params, limit + 1, offset]).fetchall()
         result['has_more'] = len(rows) > limit
         rows = rows[:limit]
         contacts = _load_contact_rows(resolve_account_database_dir(account_dir) / 'contact.db',

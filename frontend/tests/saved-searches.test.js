@@ -3,12 +3,13 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import SavedSearches from '../components/library/SavedSearches.vue'
 const api = vi.hoisted(() => ({listSearches:vi.fn(),createSearch:vi.fn(),updateSearch:vi.fn(),deleteSearch:vi.fn()}))
-const state = vi.hoisted(() => ({privacy:null}))
+const state = vi.hoisted(() => ({privacy:null, application:null}))
+vi.mock('~/stores/applicationAccounts',()=>({useApplicationAccountsStore:()=>state.application}))
 vi.mock('~/composables/useLibraryApi',()=>({useLibraryApi:()=>api}))
 vi.mock('~/stores/privacy',()=>({usePrivacyStore:()=>({privacyMode:state.privacy})}))
 vi.mock('pinia',()=>({storeToRefs:store=>store}))
 let wrapper
-beforeEach(()=>{vi.clearAllMocks();state.privacy=ref(false);api.listSearches.mockResolvedValue([])})
+beforeEach(()=>{vi.clearAllMocks();state.privacy=ref(false);state.application={revisions:ref({})};api.listSearches.mockResolvedValue([])})
 afterEach(()=>wrapper?.unmount())
 const open = async () => {wrapper = mount(SavedSearches,{props:{account:'a',getCriteria:()=>({query:'项目',scope:'global'}),applyCriteria:vi.fn()}});await flushPromises()}
 it('shows storage errors without adding a fabricated saved search',async()=>{
@@ -60,3 +61,43 @@ it('privacy mode covers saved names and rename fields while preserving search ac
   state.privacy.value=false;await flushPromises()
   expect(rename.element.closest('.privacy-blur')).toBeNull()
 })
+
+it('shows restored criteria without fake capture or apply callbacks and still allows rename and deletion', async () => {
+  const entry = { id:'restored', name:'备份搜索', criteria:{scope:'global',query:'合同',retrieval_mode:'keyword',render_types:'file',sender:'Alice',start_time:123,end_time:456} };
+  api.listSearches.mockResolvedValue([entry]);
+  wrapper=mount(SavedSearches,{props:{account:'zip-only'}}); await flushPromises();
+  expect(wrapper.find('form').exists()).toBe(false); expect(wrapper.text()).toContain('合同'); expect(wrapper.text()).toContain('Alice');
+  expect(wrapper.findAll('button').some(button=>button.text()==='备份搜索')).toBe(false);
+  await wrapper.findAll('button').find(button=>button.text()==='改名').trigger('click');
+  await wrapper.find('input[aria-label="新搜索名称"]').setValue('已恢复搜索');
+  api.updateSearch.mockResolvedValue({...entry,name:'已恢复搜索'});
+  await wrapper.findAll('button').find(button=>button.text()==='确定').trigger('click'); await flushPromises();
+  expect(api.updateSearch).toHaveBeenCalledWith('zip-only','restored',{name:'已恢复搜索'});
+  await wrapper.findAll('button').find(button=>button.text()==='删除').trigger('click'); await flushPromises();
+  expect(api.deleteSearch).toHaveBeenCalledWith('zip-only','restored'); expect(wrapper.text()).not.toContain('已恢复搜索');
+});
+
+it('refreshes only the restored account search list', async () => {
+  await open(); state.application.revisions.value = { b: 1 }; await flushPromises();
+  expect(api.listSearches).toHaveBeenCalledTimes(1);
+  api.listSearches.mockResolvedValue([{id:'restored',name:'恢复搜索',criteria:{query:'恢复'}}]);
+  state.application.revisions.value = { b: 1, a: 1 }; await flushPromises();
+  expect(wrapper.text()).toContain('恢复搜索'); expect(api.listSearches).toHaveBeenCalledTimes(2);
+});
+
+it.each(['failure','success'])('does not invalidate a pending rename on restore refresh: %s', async outcome => {
+  const original={id:'one',name:'原搜索',criteria:{query:'合同'}};
+  api.listSearches.mockResolvedValueOnce([original]); await open();
+  await wrapper.findAll('button').find(button=>button.text()==='改名').trigger('click');
+  await wrapper.find('input[aria-label="新搜索名称"]').setValue('修改后搜索');
+  let finish, fail; api.updateSearch.mockImplementationOnce(()=>new Promise((resolve,reject)=>{finish=resolve;fail=reject;}));
+  await wrapper.findAll('button').find(button=>button.text()==='确定').trigger('click');
+  api.listSearches.mockResolvedValue([{...original,name:outcome==='success'?'修改后搜索':'原搜索'},{id:'restored',name:'恢复搜索',criteria:{query:'新增'}}]);
+  state.application.revisions.value={a:1}; await flushPromises();
+  expect(api.listSearches).toHaveBeenCalledTimes(1);
+  if(outcome==='failure') fail(new Error('改名写入失败')); else finish({...original,name:'修改后搜索'});
+  await flushPromises();
+  expect(wrapper.text()).toContain('恢复搜索'); expect(api.listSearches).toHaveBeenCalledTimes(2);
+  if(outcome==='failure') expect(wrapper.get('[role="alert"]').text()).toContain('改名写入失败');
+  else expect(wrapper.text()).toContain('修改后搜索');
+});

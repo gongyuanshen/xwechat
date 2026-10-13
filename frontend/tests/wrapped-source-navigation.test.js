@@ -92,4 +92,15 @@ describe('年度总结跨页来源定位', () => {
     expect(general).not.toHaveBeenCalled()
     expect(state.diagnostic.mock.calls.map(([event]) => event)).toEqual(['navigation.started', 'navigation.finished'])
   })
+
+  it('统一搜索的真实聊天页回调保留锚点并使用统一搜索来源标签', async () => {
+    const locateAi = vi.fn(async () => true)
+    const general = vi.fn(async () => true)
+    const input = { ...target(), origin: 'search' }
+    const state = setupConsumer(createPageCallback({ locateByAnchorId: general }, locateAi), input)
+    await state.consume()
+    expect(general).toHaveBeenCalledWith({ targetUsername: 'friend', anchorId: 'message_0:Msg_real:27', kind: 'search', label: '搜索来源', throwOnError: true })
+    expect(locateAi).not.toHaveBeenCalled()
+    expect(state.navigation.value).toBeNull()
+  })
 })

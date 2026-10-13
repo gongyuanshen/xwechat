@@ -3,7 +3,9 @@ const path = require('node:path');
 const http = require('node:http');
 
 function validTarget(value) {
-  return value && typeof value.account === 'string' && /^[a-f0-9]{32}$/.test(value.task_id || '')
+  return value && typeof value.account === 'string'
+    && ((/^[a-f0-9]{32}$/.test(value.task_id || '') && value.matter_id === undefined)
+      || (/^[a-f0-9]{32}$/.test(value.matter_id || '') && value.task_id === undefined))
     && typeof (value.username || '') === 'string' && typeof (value.anchor || '') === 'string';
 }
 
@@ -29,7 +31,7 @@ function createAiNotifications({ Notification, getPort, dataDir, navigate, diagn
   const dispatch = event => {
     if (event.kind !== 'notification' || !Number.isSafeInteger(event.id) || !validTarget(event.body?.target)) return;
     // 唯一键包含任务 ID；后端数据库重建后不会与旧递增 ID 冲突。
-    const key = event.unique_key || `${event.body.target.task_id}:${event.id}`;
+    const key = event.unique_key || `${event.body.target.matter_id || event.body.target.task_id}:${event.id}`;
     const metadata = { event_id: event.id, task_id: event.body.target.task_id };
     if (delivered.has(key)) { diagnostics.record('notification.duplicate', metadata); acknowledge(event.id, metadata); return; }
     if (!Notification.isSupported()) { diagnostics.record('notification.unsupported', metadata); acknowledge(event.id, metadata); return; }

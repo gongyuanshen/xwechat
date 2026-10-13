@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({ store: null, privacy: null }));
 vi.mock("~/stores/chatAccounts", () => ({
   useChatAccountsStore: () => state.store,
 }));
+vi.mock("~/stores/applicationAccounts", () => ({ useApplicationAccountsStore: () => state.store }));
 vi.mock("pinia", () => ({
   storeToRefs: (store) => store,
 }));
@@ -30,11 +31,12 @@ const item = {
 };
 beforeEach(() => {
   state.privacy = ref(false);
-  state.store = { selectedAccount: ref("a"), ensureLoaded: vi.fn(), error: "" };
+  state.store = { selectedAccount: ref("a"), accounts:['a','b'], chatAccounts:['a','b'], revisions:ref({}), ensureLoaded: vi.fn(), error: "", setSelectedAccount:vi.fn(value=>{state.store.selectedAccount.value=value}) };
   api = {
     listFolders: vi.fn(async () => [{ id: "folder", name: "资料" }]),
     listItems: vi.fn(async () => [item]),
     updateItem: vi.fn(),
+    listSearches: vi.fn(async () => []),
   };
   vi.stubGlobal("useHead", vi.fn());
   vi.stubGlobal("useLibraryApi", () => api);
@@ -44,9 +46,106 @@ beforeEach(() => {
     vi.fn(async () => true),
   );
 });
+
+it('opens a restored-only account and exposes its saved searches without pretending original chats exist', async () => {
+  state.store.accounts=['zip-only']; state.store.selectedAccount.value='zip-only'; state.store.chatAccounts=[];
+  api.listSearches.mockResolvedValue([{id:'search',name:'恢复搜索',criteria:{query:'合同',scope:'global'}}]);
+  wrapper=mount(LibraryPage); await flushPromises();
+  expect(api.listItems).toHaveBeenCalledWith('zip-only'); expect(wrapper.get('select[aria-label="应用资料账号"]').element.value).toBe('zip-only');
+  expect(wrapper.text()).toContain('恢复搜索'); expect(wrapper.text()).toContain('合同');
+  await wrapper.find('.item').trigger('click');
+  await wrapper.findAll('button').find(button=>button.text().startsWith('原文 1')).trigger('click'); await flushPromises();
+  expect(navigateTo).not.toHaveBeenCalled(); expect(wrapper.get('[role="alert"]').text()).toContain('导入对应账号的聊天数据');
+});
+
+it('refreshes restored data and dossier history without discarding an unfinished local draft', async () => {
+  wrapper=mount(LibraryPage,{global:{stubs:{LibraryDossier:{props:['revision'],template:'<div class="dossier-test" :data-revision="revision" />'}}}}); await flushPromises();
+  await wrapper.findAll('.folder').find(button=>button.text()==='资料').trigger('click');
+  const revision=wrapper.find('.dossier-test').attributes('data-revision');
+  state.store.revisions.value={a:1}; await flushPromises();
+  expect(wrapper.find('.dossier-test').attributes('data-revision')).not.toBe(revision);
+  await wrapper.find('.item').trigger('click'); await wrapper.find('textarea').setValue('未保存的本机备注');
+  api.listItems.mockResolvedValue([item,{...item,id:'restored',title:'新增报告'}]);
+  state.store.revisions.value={a:2}; await flushPromises();
+  expect(wrapper.text()).toContain('新增报告'); expect(wrapper.find('textarea').element.value).toBe('未保存的本机备注');
+});
 afterEach(() => {
   wrapper?.unmount();
   vi.unstubAllGlobals();
+});
+it('opens one requested saved item after switching to its restored-only account', async () => {
+  const target = ref({ account: 'b', item_id: 'item' });
+  vi.stubGlobal('useState', key => key === 'library-navigation-target' ? target : ref(null));
+  state.store.chatAccounts = ['a'];
+  wrapper = mount(LibraryPage); await flushPromises();
+  expect(state.store.selectedAccount.value).toBe('b');
+  expect(wrapper.find('.detail form').exists()).toBe(true);
+  expect(wrapper.find('textarea').element.value).toBe('');
+  expect(target.value).toBeNull();
+});
+it('reports a removed saved item and consumes its navigation only once', async () => {
+  const target = ref({ account: 'a', item_id: 'removed' });
+  vi.stubGlobal('useState', key => key === 'library-navigation-target' ? target : ref(null));
+  wrapper = mount(LibraryPage); await flushPromises();
+  expect(wrapper.get('[role=alert]').text()).toContain('资料不存在');
+  expect(target.value).toBeNull(); expect(wrapper.find('.detail form').exists()).toBe(false);
+});
+it('does not discard an edited saved item when a navigation request is declined', async () => {
+  const target = ref(null);
+  vi.stubGlobal('useState', key => key === 'library-navigation-target' ? target : ref(null));
+  vi.spyOn(window, 'confirm').mockReturnValue(false);
+  wrapper = mount(LibraryPage); await flushPromises();
+  await wrapper.find('.item').trigger('click'); await wrapper.find('textarea').setValue('未保存的备注');
+  target.value = { account: 'b', item_id: 'item' }; await flushPromises();
+  expect(state.store.selectedAccount.value).toBe('a');
+  expect(wrapper.find('textarea').element.value).toBe('未保存的备注');
+  expect(target.value).toBeNull();
+  window.confirm.mockRestore();
+});
+it('asks once before replacing an edited item with an explicitly selected saved source', async () => {
+  const target = ref(null);
+  vi.stubGlobal('useState', key => key === 'library-navigation-target' ? target : ref(null));
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  wrapper = mount(LibraryPage); await flushPromises();
+  await wrapper.find('.item').trigger('click'); await wrapper.find('textarea').setValue('未保存的备注');
+  target.value = { account: 'a', item_id: 'item' }; await flushPromises();
+  expect(window.confirm).toHaveBeenCalledOnce();
+  expect(wrapper.find('textarea').element.value).toBe('');
+  window.confirm.mockRestore();
+});
+it('does not reopen an old requested item after its load failed and the user refreshed later', async () => {
+  const target = ref(null);
+  vi.stubGlobal('useState', key => key === 'library-navigation-target' ? target : ref(null));
+  wrapper = mount(LibraryPage); await flushPromises();
+  api.listItems.mockRejectedValueOnce(new Error('资料读取失败'));
+  target.value = { account: 'a', item_id: 'item' }; await flushPromises();
+  expect(wrapper.get('[role=alert]').text()).toContain('资料读取失败');
+  state.store.revisions.value = { a: 1 }; await flushPromises();
+  expect(wrapper.find('.detail form').exists()).toBe(false);
+});
+it('discards a late saved-item response after the current account changes', async () => {
+  const target = ref(null);
+  vi.stubGlobal('useState', key => key === 'library-navigation-target' ? target : ref(null));
+  wrapper = mount(LibraryPage); await flushPromises();
+  let resolve;
+  api.listItems.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  target.value = { account: 'a', item_id: 'item' }; await flushPromises();
+  state.store.selectedAccount.value = 'b'; await flushPromises();
+  resolve([{ ...item, title: '旧账号的资料' }]); await flushPromises();
+  expect(wrapper.text()).not.toContain('旧账号的资料');
+  expect(wrapper.find('.detail form').exists()).toBe(false);
+});
+it('rejected evidence navigation clears its current target and reports failure', async () => {
+  const navigation = ref(null);
+  vi.stubGlobal('useState', () => navigation);
+  navigateTo.mockResolvedValue(false);
+  wrapper = mount(LibraryPage);
+  await flushPromises();
+  await wrapper.find('.item').trigger('click');
+  await wrapper.findAll('button').find(button => button.text().startsWith('原文 1')).trigger('click');
+  await flushPromises();
+  expect(navigation.value).toBeNull();
+  expect(wrapper.find('[role=alert]').text()).toContain('未能打开聊天原消息');
 });
 it("page write failure preserves editable content and original evidence", async () => {
   api.updateItem.mockRejectedValue(new Error("磁盘不可写"));

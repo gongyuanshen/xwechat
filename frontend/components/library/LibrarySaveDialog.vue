@@ -17,7 +17,7 @@
       <p v-else-if="item?.kind === 'extracted_text'">保存已识别或提取的全文与出处，不包含附件文件。识别结果请核对原图或原文档。</p>
       <p v-else>保存报告副本和来源信息，不修改原始回答。</p>
       <p v-if="item?.kind === 'attachment'">图片保存本机当前可读取的版本，可能是缩略图，不保证原图。</p>
-      <p v-if="error" role="alert" class="library-error">{{ error }}</p>
+      <p v-if="error" role="alert" class="library-error" :class="{ 'privacy-blur': privacyMode }">{{ error }}</p>
       <fieldset :disabled="busy">
         <label
           >资料夹<select

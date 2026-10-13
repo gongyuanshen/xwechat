@@ -1301,6 +1301,8 @@ const consumeAiNavigation = createAiNavigationConsumer({
   },
   locateSource: source => source.origin === 'wrapped'
     ? searchState.locateByAnchorId({ targetUsername: source.username, anchorId: source.anchor, kind: 'wrapped', label: '年度总结来源', throwOnError: true })
+    : source.origin === 'search'
+      ? searchState.locateByAnchorId({ targetUsername: source.username, anchorId: source.anchor, kind: 'search', label: '搜索来源', throwOnError: true })
     : locateAiSource(source),
   diagnostic: (event, context) => aiDiagnosticApi.diagnostic(event, context),
   showError: showErrorAlert,

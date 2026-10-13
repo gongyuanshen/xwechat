@@ -12,7 +12,8 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 
-from .ai import local_only, account_name
+from .ai import local_only
+from ..application_accounts import application_account_name as account_name, application_account_work, list_application_accounts
 from .chat import (get_chat_messages_around, _parse_message_anchor_local_id, _iter_message_db_paths,
                    _resolve_msg_table_name, _resolve_account_dir)
 from ..ai.service import get_ai_service
@@ -67,6 +68,12 @@ class Criteria(Input):
 
 class Search(Name):
     criteria: Criteria
+
+
+class DossierVersion(Name):
+    expected_token: str = Field(pattern='^[0-9a-f]{64}$')
+    arrangements: str = Field(default='', max_length=20000)
+    conclusions: str = Field(default='', max_length=20000)
 
 
 class SearchEdit(Input):
@@ -134,6 +141,11 @@ def service():
     return LibraryService(get_ai_service(), account_name)
 
 
+@router.get('/accounts')
+def accounts():
+    return list_application_accounts()
+
+
 def validate_message_source(account, source):
     stem, table, _ = _parse_message_anchor_local_id(source.anchor)
     account_dir = _resolve_account_dir(account)
@@ -164,6 +176,31 @@ def edit_folder(id: str, body: Name, account: str):
 @router.delete('/folders/{id}')
 def delete_folder(id: str, account: str):
     return service().delete('library_folder', id, account)
+
+
+@router.get('/folders/{id}/dossier')
+def dossier(id: str, account: str):
+    return service().dossier(account_name(account), id)
+
+
+@router.post('/folders/{id}/versions')
+def save_version(id: str, body: DossierVersion, account: str):
+    return service().save_version(account, id, body.model_dump())
+
+
+@router.get('/folders/{id}/versions/{version_id}')
+def get_version(id: str, version_id: str, account: str):
+    return service().version(account_name(account), id, version_id)
+
+
+@router.get('/folders/{id}/versions/{version_id}/attachments/{item_id}')
+def version_attachment(id: str, version_id: str, item_id: str, account: str, download: bool = True):
+    owner = account_name(account)
+    with application_account_work(owner) as account_dir:
+        svc = service()
+        with svc.store.connection() as db:
+            item = svc.version_attachment(db, owner, id, version_id, item_id)
+            return attachment_response(svc, item, account_dir, download)
 
 
 @router.get('/searches')
@@ -356,17 +393,20 @@ def export_item(id: str, account: str, format: Literal['markdown', 'html'] = 'ma
 @router.get('/items/{id}/attachment')
 def download_attachment(id: str, account: str, download: bool = True):
     owner = account_name(account)
-    account_dir = _resolve_account_dir(owner)
-    with account_work(account_dir):
+    with application_account_work(owner) as account_dir:
         svc = service()
         with svc.store.connection() as db:
             item = svc.get(db, 'library_item', id, owner)
             if item['kind'] != 'attachment':
                 raise HTTPException(422, '此资料不包含附件副本')
-            path = svc.attachment_path(owner, id)
-            if not path.is_file():
-                raise HTTPException(410, '资料附件副本缺失，请检查本地数据目录。')
-            attachment = item['attachment']
-            disposition = 'attachment' if download or attachment['kind'] == 'file' else 'inline'
-            return LibraryFileResponse(path, store=svc.store, account_dir=account_dir, media_type=attachment['media_type'],
-                headers={'Content-Disposition': f"{disposition}; filename*=UTF-8''{quote(attachment['name'])}", 'X-Content-Type-Options': 'nosniff'})
+            return attachment_response(svc, item, account_dir, download)
+
+
+def attachment_response(svc, item, account_dir, download):
+    path = svc.attachment_path(item['account'], item['id'])
+    if not path.is_file():
+        raise HTTPException(410, '资料附件副本缺失，请检查本地数据目录。')
+    attachment = item['attachment']
+    disposition = 'attachment' if download or attachment['kind'] == 'file' else 'inline'
+    return LibraryFileResponse(path, store=svc.store, account_dir=account_dir, media_type=attachment['media_type'],
+        headers={'Content-Disposition': f"{disposition}; filename*=UTF-8''{quote(attachment['name'])}", 'X-Content-Type-Options': 'nosniff'})

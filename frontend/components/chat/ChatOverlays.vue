@@ -990,6 +990,7 @@
         复制消息 JSON
       </button>
       <button v-if="canSaveLibraryMessage(contextMenu.message)" class="chat-context-menu__item block w-full text-left px-3 py-2" type="button" @click="onSaveLibraryMessage('message')">保存原文到资料夹</button>
+      <button v-if="canSaveLibraryMessage(contextMenu.message)" class="chat-context-menu__item block w-full text-left px-3 py-2" type="button" @click="onSaveMatter">保存事项 / 更新期限</button>
       <button v-if="canSaveLibraryMessage(contextMenu.message) && ['file', 'image', 'video'].includes(contextMenu.message.renderType)" class="chat-context-menu__item block w-full text-left px-3 py-2" type="button" @click="onSaveLibraryMessage('attachment')">保存附件副本到资料夹</button>
       <button
         v-if="contextMenu.message?.renderType === 'quote' && contextMenu.message?.quoteServerId"
@@ -1021,6 +1022,7 @@
 
 
     <LibrarySaveDialog v-if="libraryMessageItem" :open="true" :account="libraryMessageAccount" :item="libraryMessageItem" @close="libraryMessageItem = null" @saved="libraryMessageItem = null" />
+    <MatterSaveDialog v-if="matterSource" :account="matterAccount" :source="matterSource" @close="matterSource = null" @saved="matterSource = null" />
     <!-- 导出弹窗 -->
     <ChatExportDialog v-if="exportModalOpen" :state="state" />
 </template>
@@ -1029,6 +1031,7 @@
 import { computed, defineComponent, ref, watch } from 'vue'
 import SavedSearches from '~/components/library/SavedSearches.vue'
 import LibrarySaveDialog from '~/components/library/LibrarySaveDialog.vue'
+import MatterSaveDialog from '~/components/chat/MatterSaveDialog.vue'
 import { buildLibraryMessageSource, canSaveLibraryMessage } from '~/composables/chat/savedSearchCriteria'
 import ChatExportDialog from '~/components/chat/ChatExportDialog.vue'
 import ChatHistoryFloatingWindows from '~/components/chat/ChatHistoryFloatingWindows.vue'
@@ -1050,13 +1053,21 @@ const readMaybeRef = (value) => {
 
 export default defineComponent({
   name: 'ChatOverlays',
-  components: { SavedSearches, LibrarySaveDialog, ChatExportDialog, ChatHistoryFloatingWindows },
+  components: { SavedSearches, LibrarySaveDialog, MatterSaveDialog, ChatExportDialog, ChatHistoryFloatingWindows },
   props: {
     state: { type: Object, required: true }
   },
   setup(props) {
     const libraryMessageItem = ref(null)
     const libraryMessageAccount = ref('')
+    const matterSource = ref(null)
+    const matterAccount = ref('')
+    const onSaveMatter = () => {
+      const menu = readMaybeRef(props.state.contextMenu)
+      matterAccount.value = readMaybeRef(props.state.selectedAccount)
+      matterSource.value = buildLibraryMessageSource(readMaybeRef(props.state.selectedContact).username, menu.message)
+      props.state.closeContextMenu()
+    }
     const onSaveLibraryMessage = (kind) => {
       const menu = readMaybeRef(props.state.contextMenu)
       libraryMessageAccount.value = readMaybeRef(props.state.selectedAccount)
@@ -1064,6 +1075,7 @@ export default defineComponent({
       props.state.closeContextMenu()
     }
     watch(() => readMaybeRef(props.state.selectedAccount), () => {libraryMessageItem.value = null}, {flush:'sync'})
+    watch(() => readMaybeRef(props.state.selectedAccount), () => {matterSource.value = null}, {flush:'sync'})
     const previewImageScale = ref(1)
     const previewImageRotation = ref(0)
 
@@ -1146,6 +1158,9 @@ export default defineComponent({
       ...props.state,
       libraryMessageItem,
       libraryMessageAccount,
+      matterSource,
+      matterAccount,
+      onSaveMatter,
       onSaveLibraryMessage,
       canSaveLibraryMessage,
       previewImageScale,

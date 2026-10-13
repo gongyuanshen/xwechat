@@ -38,6 +38,14 @@ export const useLibraryApi = () => {
   }
   api.getItem = (account, id) =>
     request(`items/${encodeURIComponent(id)}`, account);
+  api.getDossier = (account, folderId) =>
+    request(`folders/${encodeURIComponent(folderId)}/dossier`, account);
+  api.saveVersion = (account, folderId, body) =>
+    request(`folders/${encodeURIComponent(folderId)}/versions`, account, { method: 'POST', body });
+  api.getVersion = (account, folderId, versionId) =>
+    request(`folders/${encodeURIComponent(folderId)}/versions/${encodeURIComponent(versionId)}`, account);
+  api.downloadVersionAttachment = async (account, folderId, versionId, itemId) =>
+    readAttachmentDownload(await fetch(`${base}/folders/${encodeURIComponent(folderId)}/versions/${encodeURIComponent(versionId)}/attachments/${encodeURIComponent(itemId)}?${new URLSearchParams({ account })}`));
   api.exportItem = (account, id, format) =>
     request(`items/${encodeURIComponent(id)}/export`, account, {
       query: { format },
