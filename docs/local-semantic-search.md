@@ -1,203 +1,203 @@
-# 本地语义检索
+# Local semantic retrieval
 
-## 使用方式
+## Usage
 
-在 **设置 → AI 服务 → 本地检索** 按两步准备：选择已下载的模型，再选择聊天与时间范围，点击“开启并开始整理”一次完成保存、启用与建立索引。默认关闭；打开设置、下载完成和 Agent 提问都不会自动扫描全账号。
+Prepare retrieval in two steps under **Settings → AI services → Local retrieval**: select a downloaded model, then choose conversations and a time range. Click **Enable and start organizing** to save, enable, and build the index in one action. The feature is off by default. Opening Settings, completing a download, or asking Agent a question does not automatically scan the entire account.
 
-- 模型文件由本机账号共享，模型选择、索引和处理记录按微信账号隔离。
-- 模型先下载再选择；“更换模型”打开二级管理弹窗，选择先保留为草稿，点击主按钮后才建立新模型索引，成功后切换；此前的索引继续服务。
-- 从聊天打开范围选择时预选当前聊天；通用设置不默认全选。支持最近 30 天、90 天、自定义日期和全部历史。
-- 普通搜索新增“关键词／智能搜索”。默认关键词；智能搜索融合 FTS5 和语义候选，保留原消息定位、会话、发送者、时间及消息类型过滤。界面展示相关候选数量，相似度不代表正确率。
-- Agent 的 `search_messages` 新查询默认 `retrieval_mode=keyword`；明确原词、编号、金额选关键词，模糊描述选 `hybrid`。工具记录分别展示请求模式和实际执行模式。索引范围不能扩大 Agent 权限，结果说明未覆盖范围、数据新鲜度及候选截断。
-- 关键词搜索和本地向量推理不调用云端模型。**Agent 生成回答仍使用已配置的 AI 服务，相应聊天证据会发送给该服务。** 自动总结、关注提醒的判断流程不变。
+- Model files are shared among local accounts; model selection, indexes, and processing records are isolated by WeChat account.
+- Download a model before selecting it. **Change model** opens a secondary management dialog; selection remains a draft until the primary button builds an index for the new model. The switch occurs only on success, while the preceding index continues serving requests.
+- Opening scope selection from a chat preselects that conversation; general Settings does not select everything by default. Available ranges are the last 30 days, 90 days, custom dates, and all history.
+- Ordinary search adds **Keyword / Smart search**, with Keyword as the default. Smart search combines FTS5 and semantic candidates, retaining original-message location and conversation, sender, time, and message-type filters. The interface shows related-candidate counts; similarity is not accuracy.
+- New Agent `search_messages` queries default to `retrieval_mode=keyword`. Use keyword for exact terms, identifiers, and amounts, and `hybrid` for vague descriptions. Tool records show requested and actual modes separately. Index scope cannot expand Agent permissions; results explain uncovered scope, freshness, and candidate truncation.
+- Keyword search and local vector inference do not call cloud models. **Agent still generates answers through the configured AI service, and the corresponding chat evidence is sent to that service.** Automatic-summary and follow-up-reminder decision flows remain unchanged.
 
-模块导航统一为“模型服务／本地检索／Agent／用量记录”，附简短用途，支持方向键切换。主页面只保留两步准备与一个主按钮，未满足条件时在按钮旁说明原因。暂停且配置未变时显示“继续整理”；运行中显示真实阶段、数量和用时，完成后提示从哪里使用智能搜索。GPU 设备与组件统一在 **设置 → 本地加速** 管理，本地检索提供快捷入口；自动更新、关闭功能和清理保留在高级设置中，CPU 无需安装组件即可使用。AMD DirectML、按模型验证与实际运行状态见[本地加速说明](local-acceleration.md)。
+Module navigation is standardized as **Model services / Local retrieval / Agent / Usage records**, with short purpose descriptions and arrow-key switching. The main page retains only the two preparation steps and one primary button, showing unmet prerequisites beside it. When paused without configuration changes, the button shows **Continue organizing**. Running tasks show actual stages, counts, and elapsed time; completion explains where to use Smart search. GPU devices and components are managed centrally in **Settings → Local acceleration**, with a shortcut in Local retrieval. Automatic updates, disabling, and cleanup remain in advanced settings. CPU works without component installation. AMD DirectML, per-model verification, and actual runtime state are described in [Local acceleration](local-acceleration.md).
 
-模型卡片提供下载、暂停、继续、重试、离线导入和删除。关闭功能保留模型与索引并停止后台任务；清理索引不删除微信消息。正在被账号配置或现有索引引用的模型不能删除。
+Model cards provide download, pause, resume, retry, offline import, and deletion. Disabling the feature retains models/indexes and stops background tasks; clearing an index does not delete WeChat messages. Models referenced by account configuration or existing indexes cannot be deleted.
 
-## Agent 检索与派生索引（2026-10-09）
+## Agent retrieval and derived indexes (2026-10-09)
 
-主工具和计划内检索分支把已解析发送人条件传入 SQL，先过滤、再分页。关键词查询不会打开语义服务、编码查询或计算向量距离；概览、完整分析及精确统计继续走原有读取和统计流程。搜索结果始终标记 `search_only`，需要确认指代、前提和状态变化时由 Agent 调用 `read_context` 核对原文。
+The primary tool and retrieval branches inside plans pass resolved sender conditions into SQL, filtering before pagination. Keyword queries neither open the semantic service nor encode queries or calculate vector distances. Overviews, complete analysis, and exact statistics retain the existing read/statistics paths. Search results are always marked `search_only`; Agent uses `read_context` to check original text when it needs to confirm references, premises, and state changes.
 
-现有语义索引库新增派生 FTS5：正文按 Python `.lower()` 后逐字符编码为 ASCII token，保留标点、空白和 emoji 的位置。查询复用现有最多八词规则，以短语 AND 召回，再用原字面规则复核；会话、时间、发送人、类型过滤和复核完成后才取结果上限。纯引号等基础 FTS 无法表达的混合查询明确标记该路不支持，仍由派生 FTS 与语义路径执行。
+The existing semantic-index database now includes derived FTS5. After Python `.lower()`, body text is encoded character by character as ASCII tokens, retaining punctuation, whitespace, and emoji positions. Queries reuse the existing rule of at most eight terms, retrieve through phrase AND, then recheck with the original literal rules. Conversation, time, sender, and type filters plus rechecks finish before the result limit is applied. Hybrid queries that base FTS cannot express, such as quote-only input, explicitly mark that branch unsupported while derived FTS and semantic paths continue executing.
 
-升级通过现有账号任务及线程机制分批进行，优先当前 generation，其后按 generation/source 顺序处理，每批原子保存断点。消息更新保持 rowid，新增、编辑、裁剪和清理同步维护派生 FTS；保留已有向量，不重新调用 BGE。状态接口 `literal_index` 显示覆盖与升级状态；未回填完成的混合请求明确报错，暂停或失败不会被后台整理偷偷重试。片段新增 `(generation, username, id)` 索引，保留原有完整距离计算、消息去重与等距离排序。
+Migration batches use the existing per-account task and thread mechanisms, prioritizing the current generation and then generation/source order, with atomic checkpoints per batch. Message updates retain rowid. Adds, edits, trimming, and cleanup maintain derived FTS together; existing vectors remain and BGE is not called again. Status field `literal_index` shows coverage and migration state. Hybrid requests error explicitly until backfill completes; paused or failed migration is not secretly retried by background organization. Chunks gain a `(generation, username, id)` index while preserving full distance calculation, message deduplication, and equal-distance ordering.
 
-Agent 使用 `strict_paging=true`，在现有 workspace 按任务版本、范围、查询、模式、会话及筛选条件保存混合搜索票据。续页复用同一批候选，不重新编码，也不再访问基础 FTS；票据过期、进程重启、缺失或条件变化会要求从第一页显式重启，已有证据保留。关键词仍使用 OFFSET。缺少模式字段的旧检索分支按原有 `hybrid` 解释，但无法确认身份的旧续页失效。普通聊天搜索的参数默认 `strict_paging=false`，保留既有分页行为。
+Agent uses `strict_paging=true` and saves hybrid-search tickets in the existing workspace by task version, scope, query, mode, conversation, and filters. Subsequent pages reuse the same candidates without reencoding or accessing base FTS again. Expired tickets, process restarts, missing tickets, or changed conditions require an explicit restart from page one; existing evidence remains. Keyword pagination still uses OFFSET. Old retrieval branches without a mode field retain their original `hybrid` interpretation, but old continuation pages whose identities cannot be confirmed become invalid. Ordinary chat search defaults to `strict_paging=false`, retaining existing pagination behavior.
 
-严格检索中的索引构建、索引失败、语义推理失败都返回明确工具错误，不伪装成零命中或自动切换检索方式。没有变更用户当前 BGE 选择、后台语义整理设置、账号权限、快照生命周期或取消保护；没有引入微信原生 FTS、新向量数据库及近似检索依赖。
+Index building, index failure, and semantic-inference failure in strict retrieval return explicit tool errors instead of zero hits or automatic retrieval-method changes. The user's current BGE selection, background semantic organization, account permissions, snapshot lifecycle, and cancellation protection remain. No native WeChat FTS, new vector database, or approximate-search dependency was introduced.
 
-可复现基准：`tools/benchmark_agent_retrieval.py --output <新的隔离目录> --baseline <优化前提交>`；默认使用合成消息和固定向量。可传 `--manifest <本地私有JSON>` 只读复制真实索引并使用当前本地模型。manifest 字段为 `source_index`、`model_root`、`config`（现有本地检索配置）；不得提交该文件或数据库副本。报告只包含数量、耗时、设备与空间，不保存查询、账号标识和聊天正文。真实模型冷启动指新服务和新推理进程，合成组仅新建服务与合成引擎实例，均未清空操作系统文件缓存。基准直接调用 `LocalSearch.hybrid()` 并传入空基础关键词候选，测量语义库字面分支与向量融合；不含基础全文 FTS、路由、ChatTools/Gateway、桌面渲染及回答模型，不代表完整 Agent 工具延迟。
+Reproducible benchmark: `tools/benchmark_agent_retrieval.py --output <new-isolated-directory> --baseline <pre-optimization-commit>`. By default it uses synthetic messages and fixed vectors. `--manifest <local-private-JSON>` can copy real indexes read-only and use the current local model. Manifest fields are `source_index`, `model_root`, and `config` (existing local-retrieval configuration). Do not commit the manifest or database copies. Reports include counts, timings, devices, and space only, without queries, account identifiers, or chat bodies. Real-model cold start means a new service and new inference process; synthetic groups create only a new service and synthetic-engine instance. Neither clears the operating-system file cache. The benchmark directly calls `LocalSearch.hybrid()` with empty base-keyword candidates, measuring the semantic database's literal branch and vector fusion. It excludes base full-text FTS, routes, ChatTools/Gateway, desktop rendering, and the answer model, so it does not represent complete Agent-tool latency.
 
-### 本机实测范围
+### Local measurement scope
 
-2026-10-09，优化前基线 `b7dc9dda252953eb32eeb79a5b20d0f7f7b64778`，同机器、同数据副本、同八组固定查询。真实账号索引副本含 35,537 条消息、5,704 个片段；沿用用户选择的 `bge-base-zh` 和 `auto` 配置，实际执行设备为 CPU。冷启动各 5 次，热查询各 24 次，续页各 25 次。下列均为毫秒，p95 使用最近秩统计。
+On 2026-10-09, the pre-optimization baseline was `b7dc9dda252953eb32eeb79a5b20d0f7f7b64778`. Both versions used the same machine, data copy, and eight fixed query groups. The real-account index copy contained 35,537 messages and 5,704 chunks, retaining the user's `bge-base-zh` and `auto` selection; the actual device was CPU. Each version ran 5 cold starts, 24 warm queries, and 25 continuation pages. Values below are milliseconds, with p95 calculated by nearest rank.
 
-| 阶段 | 优化前 p50 / p95 | 优化后 p50 / p95 |
+| Stage | Before p50 / p95 | After p50 / p95 |
 | --- | ---: | ---: |
-| 新推理进程首次混合查询 | 1135.88 / 1144.86 | 982.59 / 988.08 |
-| 热混合查询 | 214.91 / 226.03 | 65.70 / 82.02 |
-| 混合续页 | 1.11 / 1.19 | 1.13 / 1.28 |
-| 混合检索中的字面分支 | 153.57 / 159.67 | 1.80 / 17.98 |
+| First hybrid query in a new inference process | 1135.88 / 1144.86 | 982.59 / 988.08 |
+| Warm hybrid query | 214.91 / 226.03 | 65.70 / 82.02 |
+| Hybrid continuation page | 1.11 / 1.19 | 1.13 / 1.28 |
+| Literal branch inside hybrid retrieval | 153.57 / 159.67 | 1.80 / 17.98 |
 
-升级 72 批，耗时 2.449 秒，数据库从 139,640,832 增到 148,889,600 字节，额外约 8.82 MiB。全部已有向量的摘要一致，字面结果及混合前十条的身份与顺序一致；两版续页均未再次编码，旧版已有隐式缓存，本轮强化的是票据身份与失效行为，不能宣称续页推理开销是本次才消除的。
+Migration took 72 batches and 2.449 seconds. The database grew from 139,640,832 to 148,889,600 bytes, approximately 8.82 MiB extra. Digests of all existing vectors matched. Literal results and identities/order of the first ten hybrid results matched. Neither version encoded again during pagination: the old version already had an implicit cache. This iteration strengthens ticket identity and invalidation; eliminating pagination inference overhead cannot be claimed as a new result of this change.
 
-另用 30,000 条合成消息、30,000 个固定二维向量隔离数据库成本：升级 0.935 秒，增加 13,275,136 字节；热混合 p50 从 284.18 降到 241.40 ms，但 p95 从 288.30 升到 315.03 ms，新服务首次查询 p50 从 285.76 升到 304.72 ms。高频词匹配大量 FTS 候选时仍有排序/复核开销，因此不承诺所有查询加速。两组测试均核对前后命中一致，真实 BGE 验证与合成固定向量验证分开记录。
+A second run used 30,000 synthetic messages and 30,000 fixed two-dimensional vectors to isolate database cost. Migration took 0.935 seconds and added 13,275,136 bytes. Warm-hybrid p50 fell from 284.18 to 241.40 ms, but p95 rose from 288.30 to 315.03 ms; new-service first-query p50 rose from 285.76 to 304.72 ms. Frequent terms matching many FTS candidates still incur sorting/recheck cost, so acceleration is not promised for every query. Both groups checked matching hits before/after; real BGE verification and synthetic fixed-vector verification are recorded separately.
 
-这些结果证明本地服务层在真实索引只读副本上执行了实际 BGE 推理，不代表回答模型、正在运行的桌面程序、安装包或微信客户端操作已经验收。没有为测试改写原账号索引、配置或源消息。后端回归覆盖字符语义、SQL 发送人分页、穷举向量排名、迁移中新增/编辑/取消、清理回滚、票据过期/重启/变更和账号隔离；前端覆盖请求/实际模式及明确错误呈现。
+These results establish actual BGE inference at the local-service layer on a read-only real-index copy. They do not establish acceptance of the answer model, running desktop application, installer, or WeChat client operations. Original account indexes, configuration, and source messages were not rewritten for testing. Backend regression covers character semantics, SQL sender pagination, exhaustive vector ranking, adds/edits/cancellation during migration, cleanup rollback, ticket expiry/restart/changes, and account isolation. Frontend regression covers requested/actual modes and explicit error presentation.
 
-本轮最终后端相关回归 434 项及 4 项子测试通过（2 条警告）；前端全套 Node 测试与 Vitest 76 个文件、911 项测试通过，模式和错误展示另行复验 27 项通过。这些是自动化回归，真实本地 BGE 和账号只读副本验证范围如上，不混称完整桌面验收。
+Final relevant backend regression passed 434 tests and 4 subtests, with 2 warnings. The full frontend Node suite and Vitest's 76 files/911 tests passed; mode/error presentation separately passed 27 rechecks. These are automated regressions. The real local BGE and read-only account-copy scope is described above and is not presented as full desktop acceptance.
 
-尚未选择模型时展示推荐模型，并明确要求下载后点击“使用此模型”。如果要删除最后一个模型，可先关闭功能、清理索引以解除该账号的模型引用；其他账号仍在使用时仍会阻止删除。
+When no model is selected, the recommended model is shown with an explicit requirement to download and click **Use this model**. To delete the last model, first disable the feature and clear indexes to release that account's references. Deletion remains blocked if other accounts still use it.
 
-## Hugging Face 固定来源
+## Pinned Hugging Face sources
 
-清单位于 `src/wechat_decrypt_tool/resources/local_search_models.json`，包含完整提交 SHA、逐文件大小与 SHA-256、许可证、池化方式、前缀、维度和输入限制。运行时不追踪 `main`。
+The manifest is `src/wechat_decrypt_tool/resources/local_search_models.json`. It includes full commit SHAs, per-file sizes and SHA-256 hashes, licenses, pooling, prefixes, dimensions, and input limits. Runtime does not track `main`.
 
-| 模型 | Hugging Face 仓库与固定提交 | 下载字节数 | 向量 |
+| Model | Hugging Face repository and pinned commit | Download bytes | Vector dimensions |
 | --- | --- | ---: | ---: |
-| BGE Small 中文，推荐 | `Xenova/bge-small-zh-v1.5` · `75c43b069aac4d136ba6bc1122f995fedcfd2781` | 95,401,750 | 512 |
-| BGE Base 中文 | `Xenova/bge-base-zh-v1.5` · `71e50dc531959f9e04ebf190ea25b00261a0a186` | 407,503,264 | 768 |
+| BGE Small Chinese, recommended | `Xenova/bge-small-zh-v1.5` · `75c43b069aac4d136ba6bc1122f995fedcfd2781` | 95,401,750 | 512 |
+| BGE Base Chinese | `Xenova/bge-base-zh-v1.5` · `71e50dc531959f9e04ebf190ea25b00261a0a186` | 407,503,264 | 768 |
 | Multilingual E5 Small | `intfloat/multilingual-e5-small` · `614241f622f53c4eeff9890bdc4f31cfecc418b3` | 492,421,556 | 384 |
 
-BGE 原作者为 **BAAI**，ONNX 转换来源为 **Xenova**；E5 来源为 intfloat。三个仓库清单标注 MIT。只下载 `onnx/model.onnx`、必要的分词器和配置，不下载训练权重或其他量化版本。当前三份清单均为六个文件，FP32、最大输入 512 Token。
+BGE's original author is **BAAI**, and its ONNX conversion source is **Xenova**; E5 comes from intfloat. The manifests mark all three repositories MIT. Downloads include only `onnx/model.onnx` and required tokenizer/configuration files, excluding training weights and other quantized variants. Each current manifest has six files, FP32, and a maximum input of 512 tokens.
 
-BGE 使用 CLS 池化和 L2 归一化；查询加中文检索前缀，文档不加。E5 使用 attention mask mean pooling、L2 归一化及 `query: ` / `passage: ` 前缀。
+BGE uses CLS pooling and L2 normalization; queries receive the Chinese retrieval prefix, while documents do not. E5 uses attention-mask mean pooling, L2 normalization, and `query: ` / `passage: ` prefixes.
 
-官方下载 SDK 固定为 `huggingface-hub==1.27.0`。所有请求显式传入 `token=False`，关闭隐式凭据与遥测，不读取用户其他工具的 HF 登录状态。匿名模式支持当前收录的公开、非 gated 资源；**不代表 Hugging Face 所有模型均免登录**。接口行为参见 [官方下载接口](https://huggingface.co/docs/huggingface_hub/package_reference/file_download)与 [gated 模型说明](https://huggingface.co/docs/hub/models-gated)。
+The official download SDK is pinned to `huggingface-hub==1.27.0`. All requests explicitly pass `token=False`, with implicit credentials and telemetry disabled; other tools' Hugging Face login state is not read. Anonymous mode supports the included public, nongated resources; **it does not mean every Hugging Face model requires no login**. API behavior is documented in [Official file downloads](https://huggingface.co/docs/huggingface_hub/package_reference/file_download) and [Gated models](https://huggingface.co/docs/hub/models-gated).
 
-下载在独立工作进程中执行，全局单模型串行、模型内逐文件下载。HF 的 CDN 重定向允许通过，长期状态只保存仓库、提交和文件标识。没有第三方镜像切换。每轮恢复共享最多五次尝试；429 使用服务端等待时间，临时错误有限退避，CDN 访问拒绝重新解析固定地址。版本不存在、源权限变化、磁盘不足和校验失败单独提示。SDK 内层重试关闭，防止预算叠加。
+Downloads run in a separate worker, serializing one model globally and its files sequentially. Hugging Face CDN redirects are allowed; persistent status saves only repository, commit, and file identifiers. There is no third-party mirror switching. Each recovery round shares a maximum budget of five attempts. HTTP 429 uses the server's wait interval; transient errors use bounded backoff; CDN access denial resolves the pinned address again. Missing versions, changed source permissions, insufficient disk space, and checksum failures have distinct messages. SDK internal retries are disabled to prevent stacked budgets.
 
-暂停保留 HF 临时数据，继续复用已校验文件；“取消并清理”只删除本应用的模型版本目录。下载完成需通过完整哈希、模型加载和小样本推理才可选择。完整模型启动只访问本地文件；损坏文件不能伪装成 CUDA 错误。
+Pause retains Hugging Face temporary data; resume reuses verified files. **Cancel and clean up** deletes only this application's model-version directory. A completed download becomes selectable only after full hashes, model loading, and small-sample inference pass. Complete-model startup reads local files only; corrupt files cannot be classified as CUDA failures.
 
-### 离线导入
+### Offline import
 
-在可联网电脑准备表中**同一提交版本**的清单文件，保留 `onnx/model.onnx` 等目录结构。目标电脑点击模型卡片“离线导入”，填写该目录；应用校验固定文件哈希并执行本地推理。无需 HF Token，不执行模型仓库代码。
+On a networked computer, prepare the manifest files for **the same commit version** in the table, retaining paths such as `onnx/model.onnx`. On the target machine, click **Offline import** on the model card and enter that directory. The application verifies fixed hashes and runs local inference. No Hugging Face token is needed, and repository code is not executed.
 
-NVIDIA 组件离线导入目录需包含当前 CPython 架构对应的 ORT GPU wheel，以及四个 NVIDIA wheel，文件名和哈希见 GPU 清单。不接受任意模型、任意 ONNX、仓库脚本或第三方 CUDA 安装包。
+The NVIDIA offline-component directory must contain the ORT GPU wheel matching the current CPython architecture plus four NVIDIA wheels, with filenames and hashes from the GPU manifest. Arbitrary models, arbitrary ONNX files, repository scripts, and third-party CUDA installers are not accepted.
 
-## CPU / NVIDIA / AMD 兼容矩阵
+## CPU / NVIDIA / AMD compatibility matrix
 
-CPU 随基础程序打包：Windows 使用 `onnxruntime==1.28.0`，macOS 使用 `onnxruntime==1.23.2`（同时有 macOS 13+ arm64 / x86_64 wheel）。分词器固定 `tokenizers==0.23.1`，向量扩展固定 `sqlite-vec==0.1.9`。Mac 的自动模式使用 CPU，隐藏 Windows NVIDIA 组件入口。详见 [macOS AI 兼容性与验收](ai-macos-compatibility.md)。
+CPU ships with the base application: Windows uses `onnxruntime==1.28.0`; macOS uses `onnxruntime==1.23.2`, with macOS 13+ arm64 / x86_64 wheels. The tokenizer is pinned to `tokenizers==0.23.1`, and the vector extension to `sqlite-vec==0.1.9`. Mac automatic mode uses CPU and hides the Windows NVIDIA component entry.
 
-Windows x64 的 AMD DirectML 与 NVIDIA CUDA 组件均独立于 CPU 和语音环境。AMD ORT 1.24.4、组件闭包、RX 6750 GRE 实测与 frozen 验收见[本地加速说明](local-acceleration.md)。以下为现有 NVIDIA CUDA 清单与历史验收，清单位于 `src/wechat_decrypt_tool/resources/local_search_gpu.json`：
+Windows x64 AMD DirectML and NVIDIA CUDA components are independent of CPU and voice environments. AMD ORT 1.24.4, its component closure, RX 6750 GRE testing, and frozen acceptance are described in [Local acceleration](local-acceleration.md). The following is the existing NVIDIA CUDA manifest and historical acceptance; its manifest is `src/wechat_decrypt_tool/resources/local_search_gpu.json`:
 
-| 组件 | 固定版本 |
+| Component | Pinned version |
 | --- | --- |
-| ONNX Runtime GPU | 1.26.0，CPython 3.11 / 3.12 / 3.13 Windows x64 |
+| ONNX Runtime GPU | 1.26.0, CPython 3.11 / 3.12 / 3.13 Windows x64 |
 | CUDA Runtime | 12.8.90 |
 | cuBLAS | 12.8.4.1 |
 | cuDNN | 9.8.0.87 |
 | cuFFT | 11.3.3.83 |
-| 应用采用的 Windows 驱动基线 | 572.61 或更新 |
+| Application's Windows driver baseline | 572.61 or newer |
 
-CPython 3.11 对应组件下载量为 **1,671,874,915 字节**；解压还需要额外磁盘空间。组件来自官方项目的 PyPI wheel，与检索模型的 Hugging Face 来源分开管理。wheel 内许可证随组件保留。
+The CPython 3.11 component download totals **1,671,874,915 bytes**; extraction requires additional disk space. Components come from official projects' PyPI wheels and are managed separately from retrieval models' Hugging Face sources. Wheel licenses remain with components.
 
-驱动基线采用 [CUDA 12.8 Update 1 对应驱动](https://docs.nvidia.com/cuda/archive/12.8.1/cuda-toolkit-release-notes/index.html)，并非宣称低于该版本的所有 CUDA 12 程序均不能运行。不满足基线的设备不会进入已验证 GPU 候选；自动模式可使用 CPU，显式 GPU 会明确报错。ORT 1.27 起默认 GPU 包切换至 CUDA 13，因此不能直接升级 GPU 包；见 [ORT CUDA 要求](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)。
+The driver baseline follows the [CUDA 12.8 Update 1 driver](https://docs.nvidia.com/cuda/archive/12.8.1/cuda-toolkit-release-notes/index.html); it does not claim that every CUDA 12 application fails below that version. Devices below the baseline do not become verified GPU candidates. Automatic mode can use CPU; explicit GPU selection raises an error. Starting with ORT 1.27, default GPU packages use CUDA 13, so directly upgrading the GPU package is not valid; see [ORT CUDA requirements](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html).
 
-| 场景 | 历史验证情况（不代表本轮 AMD 接入后的完整 CUDA 复验） |
+| Scenario | Historical verification (not a full CUDA recheck after the current AMD integration) |
 | --- | --- |
-| RTX 4070 SUPER，驱动 596.49，Windows x64 / Python 3.11 | 三个模型真实 CUDA 推理通过 |
-| 同机强制 CPU | 三个模型通过；固定样例检索通过 |
-| 打包后的 Windows EXE | CPU、外置 CUDA 组件、sqlite-vec 扩展通过冒烟测试 |
-| RTX 30 系 / RTX 50 系 | 目标支持范围，尚无对应实机，标记未验证 |
-| 干净 Windows / 无独显实体电脑 | 尚未实机验收；已覆盖无组件与模拟 GPU 故障的 CPU 路径 |
-| Python 3.12 / 3.13 GPU wheel | 清单已固定，未进行对应解释器实机验收 |
-| macOS 26.3.1 / Apple M4 / CPU | 三个模型匿名完整下载、推理与混合检索、冻结程序推理、源码桌面启动通过；真实账号端到端流程尚未验收，见验收记录 |
-| Intel Mac / Linux CPU | 未实机验收；Intel Mac 已核对依赖 wheel；首版不提供其他 GPU 后端 |
+| RTX 4070 SUPER, driver 596.49, Windows x64 / Python 3.11 | Real CUDA inference passed for all three models |
+| Forced CPU on the same machine | All three models and fixed retrieval samples passed |
+| Packaged Windows EXE | CPU, external CUDA components, and sqlite-vec extension passed smoke tests |
+| RTX 30 series / RTX 50 series | Intended support range; corresponding hardware unavailable, marked unverified |
+| Clean Windows / physical computer without a discrete GPU | Hardware acceptance pending; CPU paths without components and with simulated GPU faults covered |
+| Python 3.12 / 3.13 GPU wheels | Manifests pinned; hardware acceptance on those interpreters pending |
+| macOS 26.3.1 / Apple M4 / CPU | Complete anonymous download, inference, hybrid retrieval, frozen-program inference, and source-desktop startup passed for three models; real-account end-to-end acceptance pending |
+| Intel Mac / Linux CPU | Hardware acceptance pending; Intel Mac dependency wheels checked; the initial version provides no other GPU backends |
 
-设备策略为自动、CPU、NVIDIA CUDA、AMD DirectML，GPU 按持久设备身份选择，worker 启动时重新映射当前原生索引。检查包括驱动、组件加载、所选模型真实推理，以及 profiling 中实际执行的对应 GPU 节点；仅有 Provider 名称不算成功。CPU/GPU 使用同一份 FP32 模型，CUDA 关闭 TF32，DirectML 使用顺序执行并关闭 memory pattern；不修改系统 PATH，也不要求全局 CUDA Toolkit。
+Device policies are Automatic, CPU, NVIDIA CUDA, and AMD DirectML. GPUs are selected by persistent identity, remapped to the current native index when a worker starts. Checks include driver, component loading, real inference with the selected model, and corresponding GPU nodes actually executed in profiles; a Provider name alone does not establish success. CPU/GPU use the same FP32 models. CUDA disables TF32; DirectML uses sequential execution and disables memory pattern. System PATH is unchanged, and a global CUDA Toolkit is not required.
 
-自动模式只在明确归类的 GPU 初始化、执行或显存故障后，销毁故障进程，在独立 CPU 进程重做尚未提交的工作单元一次，并显示原因；故障 GPU 保持隔离，重新检测后需重新验证，重启不会自动解除。显式 GPU 失败直接停止。取消、输入或模型错误、未知退出与超时不自动重试；CPU 索引失败暂停并保留已提交进度。显式 GPU、取消和严格混合分页查询失败会报错；原有非严格 CPU/自动查询仍可展示关键词结果，同时明确提示语义检索不可用。
+Only explicitly classified GPU initialization, execution, or video-memory faults in automatic mode destroy the failed process and rerun the uncommitted work unit once in a separate CPU process, with the reason shown. Failed GPUs remain quarantined and require verification after redetection; restart does not release quarantine automatically. Explicit GPU failure stops immediately. Cancellation, input/model errors, unknown exits, and timeouts do not retry automatically. CPU indexing failure pauses and retains committed progress. Explicit-GPU, cancellation, and strict hybrid-pagination failures raise errors. Existing nonstrict CPU/automatic queries can still display keyword results with an explicit semantic-retrieval-unavailable message.
 
-## 索引与恢复
+## Indexing and recovery
 
-- 主操作区提供“从头整理”，按页面当前选择的模型、聊天和时间范围重新生成全部向量；暂停任务也可选择放弃续传、从头处理。模型变化时主按钮显示“使用新模型从头整理”，普通建立接口也会自动创建独立索引，绝不复用旧模型向量；新索引失败时保留旧索引，完成后才切换。
-- SQLite 业务记录保存配置、下载任务、索引任务和本地审计；账号使用独立 sqlite-vec 数据库。索引 generation 隔离模型切换，数据与游标在同一事务提交。
-- 内容包括文字、引用、卡片标题、已有语音转写，以及附件中心已缓存的本地文档文字和图片／PDF OCR 文字。建索引不会触发新的语音识别、OCR、视觉描述或视频分析；旧版只保存混合视觉输出的附件缓存不会冒充本地提取文本。
-- 在附件中心主动完成 OCR 后，更新本地检索索引，智能混合检索才会使用新缓存；原消息出处、页码／图片位置和 OCR 标识随检索证据保留，Agent 引用也说明 OCR 来源。OCR 结果需核对原图。聊天普通关键词搜索仍查原消息字段，OCR 字面查找可直接使用附件中心的正文搜索。
-- 相邻聊天按会话及十分钟间隔组织片段，目标 384 Token、重叠 64 Token，保留逐消息来源映射；超长正文分段。
-- 首次任务固定截止时间。手动整理和每分钟自动更新都默认增量读取最近提交截止时间前十分钟起的窗口，处理同秒与短期补写；按聊天复用已覆盖范围，新增聊天或向前扩展历史时补齐对应范围。重复保存相同设置不改变配置版本和断点，设备等偏好变化不使已有覆盖失效；缩小范围清理后同步覆盖记录，重新扩大时补回。转写／本地附件缓存版本变化时重新核对选中范围，每天另做一次范围校对。长期历史补写可能等待下一次校对；界面显示本次整理原因与已复用消息数。
-- 未改变内容不重复生成向量；原文变化时重建相关片段，保留相邻未修改消息。缩小范围立即约束检索并清理被移除部分。
-- 后台建索引单并发、每批最多 8 个片段、CPU 两个推理线程；交互查询优先于后续后台批次。语音活动不会覆盖检索设备偏好；下一工作单元按当前已验证的配置选择设备。空闲五分钟释放模型进程。
-- 每个会话在专用线程内保持连续消息流，正常翻页不重新扫描前缀；SQLite 连接、原生游标的推进和关闭在同一线程内完成。新断点将最后提交时间及该秒已提交消息身份与数据一起事务保存，恢复直接从该时间读取并跳过已保存身份，保留同秒尚未提交消息。旧版只有 offset 的断点首次恢复仍需跳过一次前缀，下一次提交后自动迁移。
-- 默认自动批量（`read_batch_size=0`）。总内存不超过 4 GiB 或可用内存不足 1 GiB 时最多 100 条；总内存不超过 8 GiB 或可用内存不足 3 GiB 时最多 500 条；其余情况自动使用 1,000 条。高级设置可选 100／500／1,000／2,000 条，手动选择仍受内存保护，每批重新检查。不依赖 NVIDIA 显卡是否存在。
-- 单批累计文本达到 128,000 字符时提前处理，避免少量长文本积累过多片段；保留完整单条消息，因此此阈值不是进程内存的硬上限。推理仍按最多 8 个片段执行，不随读取批量扩大显存需求。低内存策略通过模拟测试，其他硬件、系统和磁盘速度仍需实机验证。
-- 读取数量约每 250 ms（有新消息时）上报一次，页尾立即上报；SSE 每秒传递事件，1.5 秒轮询兜底。界面直接更新读取数、片段数、实际批量和已保存进度，较旧事件或轮询响应不得让进度倒退。设备状态不变时不重复写入相同事件。
-- 整理采用固定轮次：先显示「正在统计消息总量」，按任务开始时的聊天目录、截止时间和本轮范围准备完整清单并去重，再显示「已读取 / 本轮总量」。统计中的临时数量不会作为分母展示；统计失败则保留断点并等待重试，不提前进入推理。
-- 本轮总量发布后不再增长、隐藏或在完成时校准，进度条按「已保存消息数 / 本轮总量」计算。后台发现的新会话不会打断未完成轮次；统计完成后收到或补入的消息留到下一轮。
-- 为避免统计与实际读取之间的数据变化，准备清单时会分页暂存本轮消息，之后直接从本地暂存数据整理，不再第二次读取微信正文。内存按分页条数和字符数限制；首次整理需等待全部统计完成，并临时占用额外磁盘空间。暂存文件位于本地检索数据目录的 `plans/` 下，按账号与任务隔离。
-- 暂停或重启保留统计断点及已固定的消息清单；旧任务迁移时将已保存数量纳入本轮总量。完成后自动清理临时清单，调整配置、清理索引或删除账号时也会清理。已固定清单丢失时提示从头整理，不静默重新统计成另一个总量。
-- 最小化继续处理；退出停止。重启恢复此前运行任务，主动暂停保持暂停。数据和断点仍在同一事务提交，读取中的数量不用于恢复；失败或暂停只保留已提交批次，大批写入期间每 100 条检查取消。恢复时会重读尚未保存的一批。
-- `members(source,chunk)` 索引保证按原消息查找关联片段时不扫描整张关联表，适用于新建及已有索引。批量去重和关联查询在后台线程执行。
-- 关键词及向量分别最多召回 200 条，按来源去重、RRF（常数 60）融合。查询票据固定账号、权限版本、范围及候选顺序，有效十分钟，最多缓存 32 次查询。检索文本返回前再次按原消息权限和过滤条件约束，不返回片段内越权相邻原文。
-- 清理索引不会删除微信记录，账号删除清理账号索引和业务记录；SQLite 文件空闲页可能保留以供复用。
+- The primary action area offers **Organize from scratch**, regenerating all vectors using the page's current model, conversation, and time-range selections. A paused task can discard resume state and start again. After a model change, the primary button shows **Use new model and organize from scratch**. The ordinary build endpoint also automatically creates an independent index and never reuses old-model vectors. Failure retains the old index; switching occurs only after completion.
+- SQLite business records persist configuration, downloads, index tasks, and local audit. Each account has an isolated sqlite-vec database. Index generations isolate model switches; data and cursors commit in the same transaction.
+- Content includes text, quotes, card titles, existing voice transcription, and cached local-document text and image/PDF OCR text from the attachment center. Index building does not trigger new transcription, OCR, visual descriptions, or video analysis. Old attachment caches containing only mixed visual output cannot pose as locally extracted text.
+- After explicitly completing OCR in the attachment center, update the local retrieval index before Smart hybrid search uses the new cache. Original message provenance, page/image position, and OCR labels remain with retrieval evidence; Agent citations also identify OCR provenance. Verify OCR against the original image. Ordinary chat keyword search still reads original message fields; OCR literal lookup can use the attachment center's body search directly.
+- Adjacent messages form chunks by conversation and ten-minute gaps, targeting 384 tokens with 64-token overlap and per-message source mappings. Overlong bodies are split.
+- The first task fixes a cutoff time. Both manual organization and automatic updates every minute default to an incremental window beginning ten minutes before the latest committed cutoff, covering same-second messages and short-term backfills. Covered ranges are reused per conversation; newly added conversations or earlier historical ranges are filled as needed. Saving identical settings does not change configuration versions or checkpoints, and device-preference changes do not invalidate coverage. Narrowing scope synchronizes coverage after cleanup; widening it again fills the removed range. Transcription/local-attachment-cache version changes recheck selected scope, with another scope reconciliation daily. Long-term historical backfills may wait for the next reconciliation. The interface shows this round's reason and reused-message count.
+- Unchanged content does not regenerate vectors. Changed text rebuilds affected chunks while retaining unchanged adjacent messages. Narrowing scope immediately constrains retrieval and removes excluded portions.
+- Background indexing has one concurrent task, at most 8 chunks per batch, and two CPU inference threads. Interactive queries take priority over subsequent background batches. Voice activity does not overwrite retrieval-device preferences; the next work unit selects its device from current verified configuration. Five idle minutes release the model process.
+- Each conversation keeps a continuous message stream in a dedicated thread, without rescanning the prefix on ordinary pagination. SQLite connection handling, native-cursor advancement, and closing occur on that thread. New checkpoints transactionally save the last committed timestamp and identities committed in that second together with data. Resume reads directly from that time and skips saved identities while retaining uncommitted messages from the same second. Old offset-only checkpoints still skip the prefix once on their first resume, then migrate automatically after the next commit.
+- Automatic read batching is the default (`read_batch_size=0`). With total memory no greater than 4 GiB or free memory below 1 GiB, the maximum is 100 messages. With total memory no greater than 8 GiB or free memory below 3 GiB, it is 500. Otherwise automatic mode uses 1,000. Advanced settings offer 100/500/1,000/2,000; manual choices still obey memory protection, rechecked every batch. This does not depend on NVIDIA GPU presence.
+- A batch is processed early when accumulated text reaches 128,000 characters, limiting chunk accumulation from a few long messages. Each message remains complete, so this threshold is not a process-memory hard limit. Inference still runs at most 8 chunks at a time, without expanding video-memory demand as read batches grow. Low-memory policy has simulated-test coverage; other hardware, systems, and disk speeds still require hardware verification.
+- Read counts are reported approximately every 250 ms when new messages exist, and immediately at page end. SSE carries events every second, with 1.5-second polling as a backup. The interface updates read/chunk counts, actual batch size, and saved progress directly; older events or polling responses must not decrease progress. Unchanged device state does not write duplicate events.
+- Organization uses fixed rounds. It first shows **Counting total messages**, prepares and deduplicates a complete manifest using the conversation catalog, cutoff, and scope fixed at task start, then shows **Read / Round total**. Temporary counts during preparation are not displayed as a denominator. Count failure retains the checkpoint and waits for retry instead of starting inference early.
+- Once published, the round total never grows, disappears, or is recalibrated at completion. Progress is **Saved messages / Round total**. Newly discovered background conversations do not interrupt an incomplete round; messages received or backfilled after counting wait for the next round.
+- To prevent differences between counting and actual reading, manifest preparation stages the round's messages by page. Organization then uses those local staged messages without reading WeChat bodies a second time. Memory is bounded by page count and character count. Initial organization waits for all counting and temporarily needs extra disk space. Staged files live under `plans/` in the local-retrieval data directory, isolated by account and task.
+- Pause/restart retain counting checkpoints and fixed message manifests. Old-task migration includes already-saved counts in the round total. Completion automatically cleans temporary manifests; configuration changes, index clearing, and account deletion clean them too. Missing fixed manifests require organizing from scratch rather than silently recounting a different total.
+- Processing continues while minimized and stops on exit. Restart resumes previously running tasks, while explicitly paused tasks remain paused. Data and checkpoints still commit in one transaction; in-progress read counts are not used for recovery. Failure/pause retains only committed batches, and large writes check cancellation every 100 messages. Resume rereads the unsaved batch.
+- The `members(source,chunk)` index prevents a full association-table scan when finding chunks for original messages, applying to new and existing indexes. Batch deduplication and association queries run in a background thread.
+- Keyword and vector branches each retrieve at most 200 candidates, deduplicate by source, and fuse through RRF with constant 60. Query tickets bind account, permission version, scope, and candidate order, expire after ten minutes, and cache at most 32 queries. Before returning retrieval text, original-message permissions and filters are applied again; unauthorized adjacent text in a chunk is not returned.
+- Clearing indexes does not delete WeChat records. Account deletion removes that account's indexes and business records; SQLite free pages may remain for reuse.
 
-接口前缀 `/api/ai/local-search` 包含 `status`、`settings`、`conversations`、模型操作、`device/list`、`device/recheck`、组件操作、索引任务和 `events`。修改操作仅允许本机访问。SSE 配合 1.5 秒轮询兜底，重连支持 Last-Event-ID。`/api/chat/search` 增加 `retrieval_mode` 和 `search_ticket`，原定位字段保持兼容。
+The `/api/ai/local-search` prefix includes `status`, `settings`, `conversations`, model operations, `device/list`, `device/recheck`, component operations, index tasks, and `events`. Mutations allow local access only. SSE works with 1.5-second backup polling and supports Last-Event-ID on reconnection. `/api/chat/search` adds `retrieval_mode` and `search_ticket`; existing location fields remain compatible.
 
-## 2026-09-08 验收记录
+## 2026-09-08 acceptance record
 
-### 真实账号完整流程复测（效率与完成状态修复后）
+### Real-account complete workflow recheck (after efficiency and completion-state fixes)
 
-- 使用用户已选择的两个聊天、最近 30 天、BGE Small 中文和 CUDA，通过正在运行的桌面应用本地后端完成重建；未扩大聊天范围。`tools/verify_local_search_live.py` 可复测重建、暂停继续、检索与重复检查，报告仅记录统计量，不保存聊天正文。
-- 本轮重建处理 6,622 条消息，生成 554 个片段，任务计时约 10.6 秒，实际设备为 CUDA。在保存 1,000 条消息后暂停，再继续同一任务，最终完成；读取数和生成数均有中间进度。
-- 检查落库向量全部有限且已归一化，没有非空消息缺少片段关联。两个聊天分别通过真实本地搜索接口的原文命中前十、会话和类型过滤、分页不重复，以及原文定位接口返回目标消息的检查。
-- 再次完整检查处理 6,622 条未变化消息，本次生成 0 个片段，现有索引仍有 6,622 条消息和 554 个片段。修复设置页将“本次生成”误写为索引总量的提示；现在独立显示当前索引总数，无变化时说明复用已有数据，空索引不再提示可搜索。
-- 实际 Windows 桌面设置页已复核：自动更新继续读取新增聊天，显示本次检查/生成数量及当前索引总量；因此用户稍后看到的总数可能比上述测试快照更多。
-- 修复同一片段的多条消息共享向量时，原文精确匹配被相邻消息挤到后面的排序问题，并增加回归。
-- 最终相关后端 70 项回归通过；本地检索 Vue 30 项通过。CPU 补测三款模型，每款使用 48 条合成消息及 8 个标注查询，混合 Recall@20 均为 1.00；该小样本结果不代表所有真实聊天的准确率或其他实体机性能。
-- 本地报告：`tmp/local-search-live-e2e.json`。本轮验证的是源码桌面应用与当前选定范围；其他显卡实体机、干净系统与安装包仍需分别验收。
+- Rebuilt through the running desktop application's local backend using the user's two selected conversations, last 30 days, BGE Small Chinese, and CUDA, without expanding conversation scope. `tools/verify_local_search_live.py` can recheck rebuilding, pause/resume, retrieval, and repeated checks; its report saves statistics only, without chat bodies.
+- Rebuilding processed 6,622 messages and produced 554 chunks, with approximately 10.6 seconds on the task timer and actual CUDA execution. It paused after saving 1,000 messages, resumed the same task, and completed. Both reading and generation showed intermediate progress.
+- All persisted vectors were finite and normalized, and no nonempty message lacked chunk associations. Both conversations passed original-text hits in the first ten results through the real local-search API, conversation/type filtering, duplicate-free pagination, and original-text location returning the target message.
+- A repeat complete check processed 6,622 unchanged messages and generated 0 chunks; the existing index retained 6,622 messages and 554 chunks. The settings description incorrectly equating Generated this round with total index size was corrected. Current index totals are now separate; unchanged runs explain reuse, and empty indexes no longer imply that search is available.
+- The actual Windows desktop Settings page was rechecked: automatic updates continue reading new conversations and show this check's read/generated counts plus current index totals. Later user-visible totals may therefore exceed this test snapshot.
+- A ranking issue was fixed where multiple messages sharing one chunk vector could push an exact original-text match behind adjacent messages; regression coverage was added.
+- Final relevant backend regression: 70 passed; local-retrieval Vue: 30 passed. Additional CPU testing used 48 synthetic messages and 8 labeled queries for each of three models, all with hybrid Recall@20 of 1.00. This small sample does not represent accuracy across real chats or performance on other physical machines.
+- Local report: `tmp/local-search-live-e2e.json`. This iteration verified the source desktop application and current selected scope; other physical GPUs, clean systems, and installers require separate acceptance.
 
-### 连续读取与大数据量
+### Continuous reading and large datasets
 
-`tools/benchmark_local_search_reading.py --messages 300000` 使用独立临时目录中的合成 SQLite 聊天，复用实际快照读取、消息解析和索引存储代码；不读取真实账号。向量使用固定的 512 维数据，以隔离数据库吞吐，结果不代表完整模型推理或实时微信数据库速度。
+`tools/benchmark_local_search_reading.py --messages 300000` uses synthetic SQLite chats in an independent temporary directory, reusing actual snapshot reading, message parsing, and index-storage code without reading real accounts. Fixed 512-dimensional vectors isolate database throughput; results do not represent complete model inference or live WeChat database speed.
 
-- 3,399 条相同消息：旧式 100 条 offset 分页打开数据源 34 次，遍历 59,532 条；连续读取只打开 1 次，遍历 3,399 条，结果校验一致。最终测量读取耗时 0.97 秒 → 0.19 秒。
-- 30 万条合成消息全部读取并写入索引，来源只打开 1 次、遍历 30 万条；最终测量耗时约 156 秒，进程峰值 RSS 约 106 MiB，较本轮开始增加约 42 MiB，首次进度约 0.21 秒，共 594 次进度回调。此结果仅代表当前 Windows 实机，不作为其他电脑的速度承诺。
-- 回归覆盖同秒消息、无 server ID、跨页重复、动态缩小批量、长文本提前分批、读页中途上报、推理失败恢复、事务中途取消、低内存及系统信息读取失败。前端覆盖实时增长、轮询旧响应和旧事件防倒退、批量配置及草稿隔离。
-- 本次相关后端回归 115 项、前端回归 51 项通过；最终修改后的本地检索前端 28 项再次通过。
+- With 3,399 identical messages, old 100-message OFFSET pagination opened the source 34 times and traversed 59,532 messages. Continuous reading opened it once and traversed 3,399, with matching result checks. Final measured reading time: 0.97 seconds → 0.19 seconds.
+- All 300,000 synthetic messages were read and indexed, opening the source once and traversing 300,000. Final duration was approximately 156 seconds, peak process RSS approximately 106 MiB, and increase since this iteration began approximately 42 MiB. First progress arrived at approximately 0.21 seconds, with 594 progress callbacks. This represents the current Windows machine only and is not a speed promise for other computers.
+- Regression covers same-second messages, missing server IDs, cross-page duplicates, dynamically shrinking batches, early batching for long text, progress within a page, recovery after inference failure, cancellation during transactions, low memory, and system-information read failure. Frontend coverage includes live increases, protection against old polling responses/events decreasing progress, batch settings, and draft isolation.
+- Relevant backend regression: 115 passed; frontend regression: 51 passed. After final changes, 28 local-retrieval frontend tests passed again.
 
-验证目录独立于真实账号：`tmp/local-search-validation`，已加入 Git 忽略。未向云端发送聊天，也未消耗回答模型 Token。
+The verification directory `tmp/local-search-validation` is separate from real accounts and is Git-ignored. No chats were sent to cloud services, and no answer-model tokens were consumed.
 
-### 完整匿名下载及模型对照
+### Complete anonymous downloads and model comparisons
 
-三款模型在新的应用模型目录中完整匿名下载，通过逐文件 SHA-256、CPU 加载及推理。首轮下载含验证耗时分别约 **15.1 / 20.1 / 25.1 秒**，该网络速度不能代表其他用户网络。
+All three models downloaded completely and anonymously into a new application-model directory, passing per-file SHA-256, CPU loading, and inference. First downloads including verification took approximately **15.1 / 20.1 / 25.1 seconds** respectively; these network speeds do not represent other users' connections.
 
-| 模型 | CPU / GPU 最大向量差异 | 与 BAAI 原始权重对照 |
+| Model | Maximum CPU / GPU vector difference | Comparison with original BAAI weights |
 | --- | ---: | --- |
-| BGE Small | 1.565 × 10⁻⁷ | 分词一致、最大差异 2.012 × 10⁻⁷、样例排序一致 |
-| BGE Base | 1.788 × 10⁻⁷ | 分词一致、最大差异 2.682 × 10⁻⁷、样例排序一致 |
-| E5 Small | 7.451 × 10⁻⁸ | 使用 intfloat 仓库自带 ONNX，不属于 Xenova 转换对照 |
+| BGE Small | 1.565 × 10⁻⁷ | Matching tokenization, maximum difference 2.012 × 10⁻⁷, matching sample ranking |
+| BGE Base | 1.788 × 10⁻⁷ | Matching tokenization, maximum difference 2.682 × 10⁻⁷, matching sample ranking |
+| E5 Small | 7.451 × 10⁻⁸ | Uses ONNX provided by the intfloat repository; not a Xenova conversion comparison |
 
-原作者权重固定对照提交：Small `7999e1d3359715c523056ef9478215996d62a620`；Base `f03589ceff5aac7111bd60cfc7d497ca17ecac65`。仅在隔离验证环境安装 PyTorch / Transformers，未加入应用运行依赖。
+Pinned original-author comparison commits: Small `7999e1d3359715c523056ef9478215996d62a620`; Base `f03589ceff5aac7111bd60cfc7d497ca17ecac65`. PyTorch / Transformers were installed only in an isolated verification environment, without adding application runtime dependencies.
 
-首次 GPU 实测发现缺少 `cufft64_11.dll`，CPU 回退正常；补齐并固定 cuFFT wheel 后，三款模型均实际使用 CUDA。打包冒烟 EXE 分别报告 CPU ORT 1.28.0、GPU ORT 1.26.0 和 sqlite-vec 0.1.9。
+Initial GPU testing found `cufft64_11.dll` missing, with normal CPU fallback. After completing and pinning the cuFFT wheel, all three models actually used CUDA. The packaged smoke-test EXE reported CPU ORT 1.28.0, GPU ORT 1.26.0, and sqlite-vec 0.1.9.
 
-额外完成真实 HF 暂停／重启恢复：约 10,486,476 字节时暂停，保留 10,485,760 字节临时权重；重新创建服务后仍为暂停，手动继续后完整校验成功。将相同文件导入新的本地模型目录并加载成功。脚本为 `tools/verify_local_search_download_recovery.py`。单元回归另外覆盖 429 等待预算、校验失败、版本缺失和访问拒绝。
+Real Hugging Face pause/restart recovery was also verified: pausing at approximately 10,486,476 bytes retained 10,485,760 bytes of temporary weights. Recreating the service retained paused state; manually resuming completed full verification. Importing the same files into a new local-model directory and loading passed. Script: `tools/verify_local_search_download_recovery.py`. Unit regression additionally covers 429 wait budgets, checksum failures, missing versions, and access denial.
 
-### 合成标注检索集
+### Synthetic labeled retrieval set
 
-48 条固定样例、8 个标注查询，涵盖延期、金额、订单编号、模糊回忆和英文表达。复用项目字符 FTS5 查询规则，执行真实 ONNX + sqlite-vec + RRF；测试时设置离线模式。
+The 48 fixed samples and 8 labeled queries cover delays, amounts, order identifiers, vague recall, and English expressions. Testing reused the project's character FTS5 rules and real ONNX + sqlite-vec + RRF with offline mode enabled.
 
-| 模型 | 关键词 Recall@20 | 混合 Recall@20 | 查询中位耗时 | 推理子进程 RSS |
+| Model | Keyword Recall@20 | Hybrid Recall@20 | Median query duration | Inference subprocess RSS |
 | --- | ---: | ---: | ---: | ---: |
 | BGE Small | 0.25 | 1.00 | 15 ms | 158 MB |
 | BGE Base | 0.25 | 1.00 | 31.5 ms | 465 MB |
 | E5 Small | 0.25 | 1.00 | 15.5 ms | 766 MB |
 
-这是小规模合成回归，**不代表真实聊天总体准确率，也不代表低配置电脑性能**。真实大量聊天、隐含上下文与更多人工标注集仍需要补充评估。
+This is small synthetic regression, **not overall real-chat accuracy or performance on low-spec computers**. Large real-chat datasets, implicit context, and more human-labeled datasets still need evaluation.
 
-复现脚本：`tools/verify_local_search_models.py`、`tools/verify_local_search_gpu.py`、`tools/verify_local_search_reference.py`、`tools/verify_local_search_retrieval.py`、`tools/verify_local_search_frozen.py`。日志在 `logs/local-search-*.log`。后端与 Vue 回归覆盖账号隔离、过滤、事务恢复、模型切换、GPU 回退、取消、重试上限、离线导入、设置不自动扫描和来源定位；生产构建及桌面模型卡片已复核。
+Reproduction scripts: `tools/verify_local_search_models.py`, `tools/verify_local_search_gpu.py`, `tools/verify_local_search_reference.py`, `tools/verify_local_search_retrieval.py`, and `tools/verify_local_search_frozen.py`. Logs are `logs/local-search-*.log`. Backend/Vue regression covers account isolation, filtering, transaction recovery, model switching, GPU fallback, cancellation, retry limits, offline import, opening Settings without automatic scanning, and source location. Production builds and desktop model cards were rechecked.
 
-本轮相关后端回归 **102 项通过**（其中本地检索 23 项），Vue 回归 **132 项通过**；Nuxt 生产构建完成 34 个路由。打包冒烟再次验证 CPU 与外置 GPU 推理正常。项目已用更新后的源码重新启动，功能仍默认关闭。
+Relevant backend regression: **102 passed**, including 23 local-retrieval tests; Vue regression: **132 passed**. Nuxt production generation completed 34 routes. Packaged smoke testing again confirmed CPU and external-GPU inference. The project restarted with updated source; the feature remains off by default.
 
-尚未完成的发布验证：断网及 CDN 过期的端到端网络故障注入、磁盘耗尽实测、大规模真实账号效果、RTX 30/50、无独显实体机、干净 Windows 安装及语音与 GPU 的长期并行压力测试。不得将这些项目标为已通过。
+Pending release verification: end-to-end network fault injection for disconnection and expired CDN URLs, actual disk exhaustion, large real-account effectiveness, RTX 30/50 hardware, physical machines without discrete GPUs, clean Windows installation, and long-duration concurrent speech/GPU stress. These items must not be marked passed.
 
-## 设置页交互重设计验收（2026-09-08）
+## Settings interaction redesign acceptance (2026-09-08)
 
-- 聊天选择弹窗提供全选、全选当前搜索结果和清空选择；批量操作只修改草稿，确认后应用，关闭弹窗保留原范围。
-- 高级设置使用独立卡片和明确的展开／收起入口，展示运行设备、GPU 加速、自动更新及数据管理的用途。
-- 修复旧版主按钮依赖顶部启用开关、变灰却没有说明的问题；开启与首次建立索引合并为一次明确提交。
-- 模型选择和聊天选择只修改草稿，下载完成不自动选择；高级设置不会顺带保存主流程草稿。
-- Vue 回归覆盖首次开通、模型选择、范围取消、提交失败、暂停恢复、日期校验、账号切换和导航键盘操作。
-- 使用实际 Vue 组件及虚构数据的独立验收页检查布局与交互，不修改真实账号范围，也不额外启动真实聊天索引。预览位于 frontend/tests/fixtures/local-search.html，仅开发验收使用。
+- Conversation selection provides select all, select all current search results, and clear selection. Batch actions change drafts only and apply on confirmation; closing the dialog retains the original scope.
+- Advanced settings use a separate card with explicit expand/collapse controls and explain runtime devices, GPU acceleration, automatic updates, and data management.
+- The old primary button's dependency on the top enable switch, including unexplained disabled state, was corrected. Enabling and first-time index building became one explicit submission.
+- Model/conversation selections change drafts only; completing a download does not select a model automatically. Advanced settings do not save the primary-flow draft as a side effect.
+- Vue regression covers initial enablement, model selection, cancelling scope changes, submission failure, pause/resume, date validation, account switching, and keyboard navigation.
+- A separate acceptance page using actual Vue components and fictional data checked layout and interactions without changing real-account scope or starting additional real-chat indexing. Preview: `frontend/tests/fixtures/local-search.html`, for development acceptance only.

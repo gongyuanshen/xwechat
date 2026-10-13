@@ -1,5 +1,3 @@
-**English** | [简体中文](README.zh-CN.md)
-
 <p align="center">
   <img src="frontend/public/logo.png" alt="xwechat Logo" width="160" />
 </p>
@@ -36,7 +34,7 @@ This is an unofficial experimental tool for personal learning and recreational e
 
 The current application interface is in Chinese; control names in this README are English translations of the labels shown in the application.
 
-[Features](#current-features) · [Personal library and saved searches (Chinese)](docs/personal-library.md) · [Quick start](#quick-start) · [Agent](#agent) · [AI and speech](#ai-and-speech) · [Run from source](#run-from-source) · [Windows packaging](#windows-packaging) · [Known limitations](#known-limitations) · [Report an issue](#report-an-issue)
+[Features](#current-features) · [Personal library and saved searches](docs/personal-library.md) · [Quick start](#quick-start) · [Agent](#agent) · [AI and speech](#ai-and-speech) · [Run from source](#run-from-source) · [Windows packaging](#windows-packaging) · [Known limitations](#known-limitations) · [Report an issue](#report-an-issue)
 
 ## Current features
 
@@ -47,12 +45,12 @@ The table below describes features in the current source code. Previously downlo
 | Data decryption and import | Detect local WeChat accounts; scan for and validate database keys; decrypt WeChat 4.x local databases; preview and import account archive ZIP files or decrypted account directories |
 | Multiple accounts and synchronization | Switch between local accounts; periodically synchronize verified snapshots and refresh manually for accounts bound to a source directory and key; browse imported historical archives independently |
 | Chat browsing and search | Browse private chats, group chats, images, videos, voice messages, stickers, replies, merged chat records, and more; search by keyword, conversation, sender, date, and message type; view context, calendar heatmaps, and floating history windows |
-| Personal library and saved searches | Save search filters, original chat messages, attachment copies, and completed Agent reports per account; filter by message type and rolling date range; manage folders, notes, tags, and manual verification; edit report copies and export Markdown/HTML; [guide (Chinese)](docs/personal-library.md) |
-| Search and attachments | One Search entry for chats, extracted attachment text, OCR, and library notes, with source and coverage details; switch to Attachments with the same account, keywords, and dates to browse, filter, preview, download, extract text, run local OCR, or save copies; [guide (Chinese)](docs/unified-search.md) |
-| Application data backup and restore | Back up matters, folders, notes, reports, saved searches, topic versions, and referenced attachment copies together; restore missing records to the active application while retaining local versions on conflicts; saved library data remains usable without the original chat database; [guide (Chinese)](docs/application-data-backup.md) |
-| Matters and topic history | Save evidence-backed to-dos and explicitly confirmed deadlines or rescheduling, with optional reminders while the app runs; save topic versions and compare added, removed, or changed materials; [matters guide (Chinese)](docs/matters.md) |
-| Chat time machine | Compare messages from the same day across recorded years, or browse a chosen date range in year columns, with source navigation and index freshness details; [guide (Chinese)](docs/time-machine.md) |
-| Disk usage management | View per-account usage for databases, media, indexes, snapshots, and library copies in Settings; explicitly remove rebuildable full-text indexes while protecting original messages, attachments, snapshots, and running tasks; [guide (Chinese)](docs/performance-storage.md) |
+| Personal library and saved searches | Save search filters, original chat messages, attachment copies, and completed Agent reports per account; filter by message type and rolling date range; manage folders, notes, tags, and manual verification; edit report copies and export Markdown/HTML; [guide](docs/personal-library.md) |
+| Search and attachments | One Search entry for chats, extracted attachment text, OCR, and library notes, with source and coverage details; switch to Attachments with the same account, keywords, and dates to browse, filter, preview, download, extract text, run local OCR, or save copies; [guide](docs/unified-search.md) |
+| Application data backup and restore | Back up matters, folders, notes, reports, saved searches, topic versions, and referenced attachment copies together; restore missing records to the active application while retaining local versions on conflicts; saved library data remains usable without the original chat database; [guide](docs/application-data-backup.md) |
+| Matters and topic history | Save evidence-backed to-dos and explicitly confirmed deadlines or rescheduling, with optional reminders while the app runs; save topic versions and compare added, removed, or changed materials; [matters guide](docs/matters.md) |
+| Chat time machine | Compare messages from the same day across recorded years, or browse a chosen date range in year columns, with source navigation and index freshness details; [guide](docs/time-machine.md) |
+| Disk usage management | View per-account usage for databases, media, indexes, snapshots, and library copies in Settings; explicitly remove rebuildable full-text indexes while protecting original messages, attachments, snapshots, and running tasks; [guide](docs/performance-storage.md) |
 | Contacts and service accounts | View contact categories, profiles, group members, friend verification records, and service account messages; export contact profiles |
 | Moments | Browse the local timeline, historical cover images, images, videos, Live Photos, likes, and comments; perform full and incremental exports |
 | Favorites and other records | Search and export local favorites, mini program information, Channels live-stream caches, and payment records; view records related to message revocation |
@@ -78,7 +76,7 @@ The current project version is `1.4.0`. Version numbering for this independent p
 - **Installer**: Run `xwechat-<version>-Setup.exe` and select a directory in the installation wizard.
 - **Portable package**: Fully extract `xwechat-<version>-Setup.zip` and run `xwechat.exe` from the extracted directory. Keep all resources in that directory.
 
-Desktop packages include Electron, the Python backend, and basic runtime components; you do not need to install Python or Node.js separately. Current builds also collect local CPU OCR components and their weights. Optional AMD DirectML components for retrieval/OCR and NVIDIA CUDA components for retrieval are managed under **“Settings → Local acceleration”**; see the [scope and acceptance record (Chinese)](docs/local-acceleration.md). Laya, speech, and semantic retrieval **model weights must be prepared separately**. The Qwen GPU speech model also requires a package containing its runtime components. See [Windows packaging](#windows-packaging) for build instructions.
+Desktop packages include Electron, the Python backend, and basic runtime components; you do not need to install Python or Node.js separately. Current builds also collect local CPU OCR components and their weights. Optional AMD DirectML components for retrieval/OCR and NVIDIA CUDA components for retrieval are managed under **“Settings → Local acceleration”**; see the [scope and acceptance record](docs/local-acceleration.md). Laya, speech, and semantic retrieval **model weights must be prepared separately**. The Qwen GPU speech model also requires a package containing its runtime components. See [Windows packaging](#windows-packaging) for build instructions.
 
 ### Connect to local data for the first time
 
@@ -96,9 +94,9 @@ Choose **“Import backup”** on the home page and select an original account Z
 
 Review the detected account, databases, and resources before confirming the import. Data is copied into the application’s local data area; an existing account with the same name is backed up first, and the original backup directory is not modified directly. Ordinary chat reading exports and complete account archives serve different purposes. To import an account, use an account archive or a decrypted directory that meets the requirements.
 
-The chat search sidebar can save frequently used filters, including message type and rolling date ranges. The original-message context menu offers **“Add to library”**, and completed Agent answers offer **“Save report”**. Open **“Search”** in the sidebar to search all content or switch to **“Attachments”** for browsing, extraction, and explicit local OCR; both views share account, keyword, and date controls. **“Personal library”** manages copies and topic versions. See the [guide (Chinese)](docs/personal-library.md) for supported formats and coverage.
+The chat search sidebar can save frequently used filters, including message type and rolling date ranges. The original-message context menu offers **“Add to library”**, and completed Agent answers offer **“Save report”**. Open **“Search”** in the sidebar to search all content or switch to **“Attachments”** for browsing, extraction, and explicit local OCR; both views share account, keyword, and date controls. **“Personal library”** manages copies and topic versions. See the [guide](docs/personal-library.md) for supported formats and coverage.
 
-Use **“Settings → Data backup”** for application-created matters, notes, reports, saved searches, topic versions, and attachment copies. Restore fills missing data in the active application and keeps local records when they conflict. This backup is separate from the chat database/resource archive; see the [backup guide (Chinese)](docs/application-data-backup.md).
+Use **“Settings → Data backup”** for application-created matters, notes, reports, saved searches, topic versions, and attachment copies. Restore fills missing data in the active application and keeps local records when they conflict. This backup is separate from the chat database/resource archive; see the [backup guide](docs/application-data-backup.md).
 
 ## Export and annual sharing
 
@@ -147,7 +145,7 @@ Open **“Settings → AI services → Automatic replies”**, select the data a
 - **Sending and review**: “Displayed in client” means local UI evidence, not delivery or read confirmation. An uncertain submission pauses that conversation for manual review and is never automatically retried. Old batches are not resent after review or recovery. Restarting the application requires window/account confirmation and activation again.
 - **History cleanup**: Delete individual completed, cancelled, failed, or interrupted records, or use **“Delete all”** to clear eligible records across every conversation and page in the current account, regardless of filters. This hides records from the history view while retaining submission and deduplication evidence. Records still processing or awaiting review remain visible; WeChat messages are not deleted or recalled.
 
-See [Windows WeChat sending (Chinese)](docs/wechat-qt-send.md) for the window automation and confirmation boundaries. Automated checks do not establish acceptance with a real model or a complete real WeChat automatic-reply workflow.
+See [Windows WeChat sending](docs/wechat-qt-send.md) for the window automation and confirmation boundaries. Automated checks do not establish acceptance with a real model or a complete real WeChat automatic-reply workflow.
 
 ### Local Laya profiling and automatic recognition
 
@@ -161,7 +159,7 @@ Private-chat profiles analyze only the other person’s messages. For group chat
 
 Under **“Settings → AI services → Local retrieval”**, download and select a retrieval model, then click **“Enable and start indexing”**. The feature is disabled by default. Once enabled, it gradually indexes all chats in the current account in the background; pausing or restarting retains progress. Chat and date conditions in a question restrict that query, without changing the enabled account-wide index scope.
 
-Indexing and vector inference run locally. A CPU is sufficient; optional NVIDIA CUDA and AMD DirectML are managed in **“Settings → Local acceleration”**, with verification for each model and device. See the [acceleration guide and measured results (Chinese)](docs/local-acceleration.md). Disabling the feature retains the model and index; clearing the index does not delete chat records. Retrieval is limited by indexed materials and account permissions. **Local retrieval does not change the model service that the AI assistant uses to generate answers**.
+Indexing and vector inference run locally. A CPU is sufficient; optional NVIDIA CUDA and AMD DirectML are managed in **“Settings → Local acceleration”**, with verification for each model and device. See the [acceleration guide and measured results](docs/local-acceleration.md). Disabling the feature retains the model and index; clearing the index does not delete chat records. Retrieval is limited by indexed materials and account permissions. **Local retrieval does not change the model service that the AI assistant uses to generate answers**.
 
 ### Local speech-to-text
 
@@ -294,7 +292,7 @@ Backend smoke checks during a build verify only API imports and process startup 
 | Source Electron development build | `%APPDATA%\wechat-data-analysis-desktop`, with default output in its `output` subdirectory |
 | Standalone Python backend | `output` under the current working directory |
 
-If the installed application already has persistent state in `xwechat`, it reuses that location first. If only the old directory has persistent state, it reuses `%APPDATA%\wechat-data-analysis-desktop`. Data in both locations is not merged automatically. You can also specify an output directory in desktop settings; existing `WECHAT_TOOL_DATA_DIR`/`WECHAT_TOOL_OUTPUT_DIR` configurations remain effective. See [Desktop branding and persistent data directories (Chinese)](docs/desktop-brand-profile.md).
+If the installed application already has persistent state in `xwechat`, it reuses that location first. If only the old directory has persistent state, it reuses `%APPDATA%\wechat-data-analysis-desktop`. Data in both locations is not merged automatically. You can also specify an output directory in desktop settings; existing `WECHAT_TOOL_DATA_DIR`/`WECHAT_TOOL_OUTPUT_DIR` configurations remain effective. See [Desktop branding and persistent data directories](docs/desktop-brand-profile.md).
 
 Before upgrading, fully exit the old application from the system tray, then install or fully extract the new version. **Keep existing user data directories and the output directory specified in Settings. Do not rename, move, or delete database, key, or snapshot directories because the application has been renamed. Existing accounts do not need to be decrypted again.**
 

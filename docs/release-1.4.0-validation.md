@@ -1,32 +1,32 @@
-# v1.4.0 发布验证记录
+# v1.4.0 Release Validation Record
 
-本记录属于项目开发文档，GitHub Release 说明只包含功能、下载与必要使用说明。
+This record is project development documentation. GitHub Release notes include only features, downloads, and necessary usage instructions.
 
-## 发布内容
+## Release Contents
 
-搜索与附件整合、应用资料备份与直接补缺恢复、事项状态与提醒、专题版本及时光机，以及相关隐私遮挡和检索修复。Windows x64 提供 NSIS 安装版及便携 ZIP；应用版本与 Windows 数值版本分别为 `1.4.0`、`1.4.0.0`。
+Search and attachment integration, application-data backup and direct restoration of missing items, matter status and reminders, topic versions and Time Machine, plus related privacy masking and retrieval fixes. Windows x64 offers an NSIS installer and portable ZIP. The application version and numeric Windows version are `1.4.0` and `1.4.0.0`, respectively.
 
-## 2026-10-13 验证
+## 2026-10-13 Verification
 
-| 层次 | 结果与范围 |
+| Layer | Results and scope |
 |---|---|
-| 后端相关回归 | 14 个文件、212 项通过，覆盖备份恢复、账号隔离、资料版本、附件文字、事项、搜索、时光机 |
-| 前端完整回归 | Node 测试 85 项；101 个 Vitest 文件、1,244 项通过 |
-| 桌面完整回归 | 144 项通过 |
-| 依赖与构建 | `uv lock --check` 通过；完整图标、静态 UI、PyInstaller、NSIS 和 ZIP 构建退出 0 |
-| 包级审计 | PE 版本一致；ASAR 168 项只含预期源码和依赖；ZIP 374 文件 CRC 与对应资源摘要一致；NSIS 375 文件与展开目录逐文件一致 |
-| ZIP 与 NSIS 差异 | ZIP 唯一缺少 `resources/elevate.exe`，为 NSIS 专用文件；其他资源无差异 |
-| 模块和 UI | 搜索、备份、账号、事项、时光机等冻结模块和静态导入链存在；搜索／附件整合 UI、资料备份和旧附件地址跳转存在；OCR 资源与依赖元数据完整 |
-| 冻结后端 | 构建和最终包内 EXE 摘要一致；两份 EXE 各通过 WXGF 3 个正例与 2 个明确失败反例 |
-| 实际 HTTP | 最终包后端执行 49 次合成数据请求，验证版本、路由、静态 UI、恢复／编辑／重复补缺、保留本机笔记与事项、历史附件下载、搜索分页与覆盖、附件查询、时光机与访问边界 |
-| 生命周期 | 父进程退出后 watchdog 使后端正常退出，观察到的子进程全部结束 |
+| Related backend regressions | 212 checks passed across 14 files, covering backup/restore, account isolation, material versions, attachment text, matters, search, and Time Machine |
+| Full frontend regressions | 85 Node tests; 1,244 checks passed across 101 Vitest files |
+| Full desktop regressions | 144 checks passed |
+| Dependencies and builds | `uv lock --check` passed; complete icon, static UI, PyInstaller, NSIS, and ZIP builds exited with 0 |
+| Package audit | PE versions matched; 168 ASAR entries contained only expected source and dependencies; CRCs and corresponding resource digests matched for 374 ZIP files; 375 NSIS files matched the expanded directory file by file |
+| ZIP versus NSIS | The ZIP lacked only `resources/elevate.exe`, which is NSIS-specific; all other resources matched |
+| Modules and UI | Frozen modules and static import chains for search, backup, accounts, matters, Time Machine, and other features were present; integrated search/attachment UI, data backup, and old attachment-address redirects were present; OCR resources and dependency metadata were complete |
+| Frozen backend | Backend EXE digests matched between the build and final package; each of the two EXEs passed 3 positive WXGF cases and 2 explicit failure cases |
+| Actual HTTP | The final package backend executed 49 synthetic-data requests, checking versions, routes, static UI, restoration/editing/repeated restoration of missing items, retention of local notes and matters, historical attachment downloads, search pagination and coverage, attachment queries, Time Machine, and access boundaries |
+| Lifecycle | After the parent process exited, the watchdog shut down the backend normally; all observed child processes ended |
 
-最终后端 SHA-256：`941f2caaaf329daae7a2d6bf97769cdfb94e7f23f714743b0da3e53af52ae8bf`。
+Final backend SHA-256: `941f2caaaf329daae7a2d6bf97769cdfb94e7f23f714743b0da3e53af52ae8bf`.
 
-源码采用逐文件发布清单；私有根测试、运行资料、账号配置、凭据、日志、截图、构建中间文件及无关草案不进入提交。发布资产只包含安装包、便携 ZIP、blockmap 和 SHA-256 清单。私有构建与检查记录位于 `.work/release-1.4.0-20261013/`，不随仓库提交。
+Source uses a file-by-file release allowlist. Private root tests, runtime data, account configuration, credentials, logs, screenshots, intermediate build files, and unrelated drafts are not committed. Release assets contain only the installer, portable ZIP, blockmap, and SHA-256 manifest. Private build and check records are in `.work/release-1.4.0-20261013/` and are not committed with the repository.
 
-## 验收边界
+## Acceptance Boundaries
 
-冻结后端与界面使用可丢弃的合成数据；OCR 检索使用预先构造的缓存。这些检查没有读取真实微信资料、执行真实 OCR／模型推理、发送微信消息，或实际操作安装向导。事项系统通知的真实弹出、用户完整资料和不同 Windows 设备仍需分别验收。
+The frozen backend and interface used disposable synthetic data; OCR retrieval used preconstructed caches. These checks did not read real WeChat data, run real OCR/model inference, send WeChat messages, or operate the installation wizard. Actual matter system notification display, complete user materials, and different Windows devices still require separate acceptance.
 
-本次产物沿用现有未签名构建配置。包结构和服务验收不能替代操作系统签名信誉或安装向导验收。
+These artifacts retain the existing unsigned build configuration. Package-structure and service acceptance do not substitute for operating-system signing reputation or installation-wizard acceptance.

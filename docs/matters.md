@@ -1,37 +1,37 @@
-# 事项状态面板
+# Matter Status Panel
 
-事项保存于现有 AIStore 的 `matter` 记录，按微信账号隔离。新功能不调用模型，也不自动推断后续消息与既有事项的关系。
+Matters are stored as `matter` records in the existing AIStore and isolated by WeChat account. This feature does not call a model or automatically infer relationships between later messages and existing matters.
 
-## 使用方式
+## Usage
 
-1. 在聊天原消息菜单选择“保存事项 / 更新期限”，或在 AI 总结的待办旁选择“保存事项”。对话框重新读取并展示本地原消息，确认后保存标题、来源和可选期限。
-2. 在“事项状态面板”切换待办、进行中、已完成，查看原文和完整变更记录。期限由用户明确选择，不把“周五”等文字自动解释成日期。
-3. 收到改期消息时，在这条消息的菜单打开同一对话框，选择“作为已有事项的改期依据”，选定事项并确认新期限。原期限、改期时间和消息证据均保留；已完成事项必须先重新打开才能改期。
-4. 未安排期限的事项，可通过面板“依据此原文确认期限”设置期限。到期提醒默认关闭，须由用户启用。
+1. In an original chat message's menu, select "Save Matter / Update Deadline", or select "Save Matter" next to a to-do in an AI summary. The dialog rereads and displays the local original message, then saves the title, source, and optional deadline after confirmation.
+2. In the "Matter Status Panel", switch between To Do, In Progress, and Completed, and inspect the original text and complete change history. The user explicitly selects the deadline; text such as "Friday" is not automatically interpreted as a date.
+3. When a rescheduling message arrives, open the same dialog from that message's menu, select "Use as Rescheduling Evidence for an Existing Matter", choose the matter, and confirm the new deadline. The previous deadline, rescheduling time, and message evidence are retained. Completed matters must be reopened before they can be rescheduled.
+4. For a matter without a deadline, use "Confirm Deadline from This Original Text" in the panel to set one. Due reminders are off by default and must be enabled by the user.
 
-## 提醒与数据契约
+## Reminder and Data Contracts
 
-- 复用现有 AIService 调度器和桌面通知通道。每个提醒版本只入队一次；通知正文不显示事项标题或聊天原文。
-- 完成事项、关闭提醒或确认新期限时，事务删除该事项尚未投递的旧通知。已经交给操作系统的通知不能撤回。
-- 应用运行时处理到期事项；应用关闭时不会发送通知。重新运行后会处理仍未完成且尚未通知的逾期事项。网页单独运行时可管理事项，系统通知依赖桌面客户端。
-- 每次写入携带事项版本号；并发或过期操作返回 409，要求重新查看后确认，不覆盖新状态。
-- 原文在提交时再次核对，展示之后内容变化返回 409；账号删除与原文读取/保存之间受现有账号工作租约保护。
-- 变更历史和原文保存在本地，不随原总结任务删除。账号删除沿用 AIStore 的整账号清理机制。
+- The feature reuses the existing AIService scheduler and desktop notification channel. Each reminder revision is queued only once; the notification body contains neither the matter title nor original chat text.
+- Completing a matter, disabling reminders, or confirming a new deadline transactionally deletes that matter's old, undelivered notifications. Notifications already handed to the operating system cannot be recalled.
+- Due matters are processed while the application runs; no notifications are sent while it is closed. On reopening, overdue matters that remain incomplete and have not yet been notified are processed. The standalone web interface can manage matters; system notifications require the desktop client.
+- Every write carries the matter revision number. Concurrent or stale operations return 409 and require review and confirmation again, without overwriting newer state.
+- Original text is checked again on submission. If it changes after being displayed, the operation returns 409. The existing account work lease protects account deletion against original-text reads and saves.
+- Change history and original text stay local and are not deleted with the original summary task. Account deletion uses AIStore's existing whole-account cleanup.
 
 ## API
 
-接口前缀 `/api/matters`，沿用本机访问检查，均要求 `account` 查询参数。
+The endpoint prefix is `/api/matters`. Existing local-machine access checks apply, and all endpoints require the `account` query parameter.
 
-| 方法与路径 | 用途 |
+| Method and path | Purpose |
 | --- | --- |
-| `GET /api/matters` | 当前账号全部事项及历史 |
-| `POST /api/matters/source` | 校验消息身份并返回原文 |
-| `POST /api/matters` | 以原文创建事项，期限可空 |
-| `PATCH /api/matters/{id}` | 按 revision 更新标题、状态、提醒开关 |
-| `POST /api/matters/{id}/reschedule` | 以 `confirmed: true`、新期限、revision 和消息证据确认改期 |
+| `GET /api/matters` | All matters and their history for the current account |
+| `POST /api/matters/source` | Validate message identity and return original text |
+| `POST /api/matters` | Create a matter from original text, with an optional deadline |
+| `PATCH /api/matters/{id}` | Update the title, status, and reminder switch using revision |
+| `POST /api/matters/{id}/reschedule` | Confirm rescheduling with `confirmed: true`, the new deadline, revision, and message evidence |
 
-期限采用 Unix 秒保存，界面输入和显示使用系统本地时区。普通 PATCH 不接受期限字段，防止绕过原文确认流程。
+Deadlines are stored as Unix seconds; the interface uses the system's local time zone for input and display. Ordinary PATCH requests do not accept deadline fields, preventing bypass of original-text confirmation.
 
-## 验证范围
+## Verification Scope
 
-本地自动化覆盖来源一致性、账号隔离、并发版本冲突、到期去重、完成/改期取消旧通知、隐私通知正文、前端过期响应、确认交互和桌面通知目标校验。此范围不代表真实微信、真实模型或安装包验收；事项功能本身不需要模型推理。桌面系统通知的实际弹出与点击仍需运行客户端验收。
+Local automation covers source consistency, account isolation, concurrent revision conflicts, due-reminder deduplication, cancellation of old notifications after completion/rescheduling, private notification bodies, stale frontend responses, confirmation interactions, and desktop notification target validation. This scope does not establish real WeChat, real model, or package acceptance; the matter feature itself requires no model inference. Actual desktop system notification display and clicking still require acceptance in a running client.

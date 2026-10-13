@@ -1,10 +1,10 @@
-# Windows 源码开发与运行
+# Windows source development and execution
 
-项目已切换为纯独立数据链路，桌面应用打包通过独立流水线恢复。仓库提供源码、测试、依赖锁文件及一键打包脚本（支持 Windows NSIS 安装包、免安装压缩包及 Python Wheel 分发包）。
+The project now uses an independent data path, and desktop packaging has been restored through a separate pipeline. The repository provides source, tests, dependency lockfiles, and one-command packaging scripts for Windows NSIS installers, portable archives, and Python wheel distributions.
 
-## 开发环境与启动
+## Development environment and startup
 
-使用 Windows x64、Python 3.11 或更新版本、uv，以及 Node.js 22.12 或更新版本的 x64 发行版。在项目根目录执行：
+Use Windows x64, Python 3.11 or newer, uv, and an x64 Node.js distribution at version 22.12 or newer. Run from the project root:
 
 ```powershell
 uv sync --locked --extra voice-transcription
@@ -13,132 +13,130 @@ npm --prefix desktop ci
 npm --prefix desktop run dev
 ```
 
-启动脚本默认使用独立数据模式，启动 Nuxt 开发服务和 Electron 桌面，后端使用项目的 Python 环境，不下载或准备旧原生组件。桌面启动命令会启用 `voice-transcription` 依赖，因此上面的安装步骤提前准备本地语音转写环境。
+The startup script uses the independent data path by default and starts the Nuxt development server and Electron desktop. The backend uses the project's Python environment without downloading or preparing legacy native components. The desktop startup command enables the `voice-transcription` dependencies; the installation steps above prepare local transcription in advance.
 
-只验证前端静态生成时执行：
+To verify frontend static generation alone:
 
 ```powershell
 npm --prefix frontend run generate
 ```
 
-## 唯一的独立数据实现
+## Single independent data implementation
 
-旧 client／broker 模式、组件下载器、租约和专属 Hook 已从源码移除。保留本地 WXGF 解码与 FFmpeg 等独立路径仍使用的组件，以及旧归档格式的独立读写兼容。无需配置模式开关。
+The legacy client/broker modes, component downloader, leases, and dedicated hooks have been removed from source. Components still used by independent paths, including local WXGF decoding and FFmpeg, remain, as does independent read/write compatibility for legacy archive formats. No mode switch is required.
 
-旧链路清理时仅做静态语法和引用检查；下文保留各阶段的历史验收记录。新版发布使用当前源码重新构建，源码测试、冻结后端验证与真实微信操作分别记录，不能相互替代。
+The legacy-path cleanup performed static syntax and reference checks only. Historical acceptance records for the individual stages remain below. New releases are rebuilt from current source; source tests, frozen-backend verification, and real WeChat operations are recorded separately and cannot substitute for each other.
 
-## 独立读取与导出
+## Independent reading and export
 
-已安装上述源码依赖后，从项目根目录启动：
+After installing the source dependencies above, start from the project root:
 
 ```powershell
 npm --prefix desktop run dev
 ```
 
-只启动 API 时执行 `uv run main.py`，不需要设置模式变量。`GET /api/health` 保留 `data_mode=offline`、`default_source=decrypted` 字段，用于现有客户端识别独立快照来源；这两个值不再对应可切换的运行模式。
+To start only the API, run `uv run main.py`; no mode variable is required. `GET /api/health` retains `data_mode=offline` and `default_source=decrypted` so existing clients can recognize the independent snapshot source. Those values no longer represent selectable runtime modes.
 
-Python 分发构建使用 `uv build`。sdist 和 wheel 收集 Python 源码、资源、元数据及本地 WXGF 图片/动画解码库 `VoipEngine.dll`；旧 client/broker、完整性扩展、大图 Hook 和其他原生二进制继续排除，也不夹带本机前端依赖。安装后的命令行入口为 `wechat-decrypt`。桌面端应用通过 `npm --prefix desktop run dist` 打包。
+Build Python distributions with `uv build`. The sdist and wheel include Python source, resources, metadata, and the local WXGF image/animation decoder `VoipEngine.dll`. Legacy client/broker components, integrity extensions, the large-image hook, and other native binaries remain excluded, as do this machine's frontend dependencies. The installed command-line entry point is `wechat-decrypt`. Package the desktop application with `npm --prefix desktop run dist`.
 
-数据库密钥可以手动提供，也可以先保持微信登录，在解密页面填写对应账号的 `db_storage` 路径后点击获取。独立模式调用源码内存扫描，绑定进程实际加载的 DLL，并用该账号的会话库和消息库验证；失败明确报错，不切换到旧 Hook，不启动或重启微信。扫描完成后，退出微信并复制完整账号 `db_storage`，保留 `.db` 与对应 `-wal`，再用现有解密页面或 `POST /api/decrypt` 的 JSON 请求体提交 `key` 与副本路径。不要把密钥写进命令行或验收报告。
+Provide the database key manually, or keep WeChat logged in, enter the relevant account's `db_storage` path on the decryption page, and click the key-acquisition button. The independent path uses source-based memory scanning, binds to the DLL actually loaded by the process, and verifies against that account's session and message databases. Failure raises an explicit error; it neither switches to the old hook nor starts or restarts WeChat. After scanning, exit WeChat and copy the account's complete `db_storage`, retaining `.db` files and their corresponding `-wal` files. Submit `key` and the copy's path through the existing decryption page or the JSON body of `POST /api/decrypt`. Do not put keys in command lines or acceptance reports.
 
-解密器校验主库所有页面、WAL 帧校验和与页面认证、读取前后源文件状态及完整 SQLite `integrity_check`。任一失败就不替换对应的已有有效数据库，不填零、不自动修复索引。多个分库逐个发布；这不代表在线跨库事务快照，所以仍须使用退出微信后的完整副本。
+The decryptor verifies every main-database page, WAL frame checksums and page authentication, source-file state before and after reading, and a complete SQLite `integrity_check`. Any failure prevents replacement of the corresponding existing valid database; pages are not zero-filled and indexes are not automatically repaired. Database shards are published individually. This is not an online transaction snapshot spanning databases, so a complete copy taken after exiting WeChat is still required.
 
-聊天 `source=auto` 读取解密快照，明确请求实时源会报错。聊天页会按下文方式自动同步当前本地账号。损坏分库、读取失败或发送者映射缺失不会作为正常空聊天返回。
+Chat `source=auto` reads the decrypted snapshot; an explicit request for a live source errors. The chat page automatically synchronizes the current local account as described below. Corrupt shards, read failures, and missing sender mappings are not returned as normal empty chats.
 
-离线会话最新预览直接查询各消息分库，不沿用可能过期的会话缓存；耗时随分库及会话数量增加。WAL 重置后保留旧代次尾部属于 [SQLite 文件格式](https://sqlite.org/fileformat2.html#wal_reset) 允许的行为，判断有效帧先核对盐值，当前代次的截断帧和校验失败仍直接报错。
+The latest offline conversation previews query the message shards directly instead of relying on potentially stale session caches. Cost increases with the number of shards and conversations. Retaining the previous generation's tail after a WAL reset is permitted by the [SQLite file format](https://sqlite.org/fileformat2.html#wal_reset). Valid-frame detection checks salts first; truncated frames and checksum failures in the current generation still raise errors directly.
 
-导出支持 TXT、JSON、Excel、HTML，以及目录或 ZIP 输出。以下是仅导出文本的 API 示例：
+Exports support TXT, JSON, Excel, HTML, and directory or ZIP output. A text-only API example is:
 
 ```json
 {
-  "account": "账号目录名",
+  "account": "account-directory-name",
   "source": "decrypted",
   "scope": "selected",
-  "usernames": ["联系人username"],
+  "usernames": ["contact-username"],
   "format": "json",
   "output_mode": "folder",
   "include_media": false
 }
 ```
 
-提交到 `POST /api/chat/exports`，按返回的 `exportId` 查询现有导出任务状态。消息文本和元数据沿用原有序列化。聊天及朋友圈 ZIP 使用 `_integrity/checksums.json`，提供 SHA-256 内容校验，不生成 WES。HTML 使用仓库中保留来源信息的静态资源，可通过本地文件打开；其展示、分页和搜索不再需要旧 `.pyd`。
+Submit it to `POST /api/chat/exports` and query the existing export-task status with the returned `exportId`. Message text and metadata retain their existing serialization. Chat and Moments ZIPs use `_integrity/checksums.json` for SHA-256 content checks; they do not generate WES. HTML uses repository static assets with their provenance retained and opens through local files. Rendering, pagination, and search no longer require the old `.pyd`.
 
-联系人及通用记录的单文件导出使用相邻的 `.checksums.json` 内容清单；浏览器联系人导出也保存这一清单。收藏及其他预构建记录 ZIP 复用同一独立归档链路。上游读取失败会使任务失败，不转换为正常空导出。SHA-256 只能检查内容是否与清单一致，不能证明作者或来源。
+Single-file contact and generic-record exports use an adjacent `.checksums.json` content manifest; browser contact export also saves this manifest. Favorites and other prebuilt-record ZIPs reuse the same independent archive path. Upstream read failure fails the task instead of becoming a normal empty export. SHA-256 checks whether content matches the manifest; it cannot establish authorship or provenance.
 
-`include_media=true` 可使用本地已有资源及已保存媒体密钥，DAT 继续使用已有源码算法。没有本地资源会记录缺失；解码、权限或格式错误应使任务失败，不能把密文复制后记为成功。导出可显式选择获取媒体密钥、下载可用远程媒体及生成本地语音转写，分别需要对应的微信客户端、网络资源或已就绪模型。旧大图 Hook 在能力接口显示不可用。语音转文字使用设置中下载并选择的本地模型；调用微信客户端转写的入口、接口和窗口自动化链路已移除。数据库中已有的微信转写仍可读取、显示及复用。
+`include_media=true` can use existing local resources and saved media keys; DAT retains the existing source algorithms. Missing local resources are recorded as missing. Decoding, permission, or format errors must fail the task; copying ciphertext cannot count as success. Exports can explicitly request media-key acquisition, downloading available remote media, and local voice transcription, each requiring its corresponding WeChat client, network resource, or ready model. The capability API reports the old large-image hook as unavailable. Speech-to-text uses the local model downloaded and selected in Settings. Entry points, APIs, and window automation for asking the WeChat client to transcribe have been removed. Existing WeChat transcriptions stored in the database can still be read, displayed, and reused.
 
-现有聊天、朋友圈、联系人、记录和账号归档导出 API 支持 `encrypt=true` 与 `content_key_base64`：后者必须显式提供恰好 32 字节的 Base64 内容密钥，与微信数据库密钥无关，不写入任务响应或持久化配置。ZIP/单文件输出为 WEC1；增量目录不支持整包加密。复用现有 `export_crypto.decrypt_export_file(..., content_key=...)` 在默认模式独立解密，全部分片认证、长度和终点验证通过后原子发布。错误密钥、篡改、截断、乱序与尾随内容直接失败，不加载旧 client/broker/lease。图形导入入口仍接收 ZIP/目录，WEC 文件须先由该本地函数解密。四组真实旧组件生成的公开样本覆盖分片边界，独立解密与重新加密逐字节一致，见 `tests/fixtures/wec1/`。
+The existing chat, Moments, contact, record, and account-archive export APIs support `encrypt=true` and `content_key_base64`. The latter must explicitly supply a Base64 content key of exactly 32 bytes. It is unrelated to the WeChat database key and is neither included in task responses nor persisted in configuration. ZIP/single-file outputs use WEC1; incremental directories do not support whole-package encryption. The existing `export_crypto.decrypt_export_file(..., content_key=...)` independently decrypts in the default mode and atomically publishes only after every chunk's authentication, length, and endpoint checks pass. Wrong keys, tampering, truncation, reordering, and trailing content fail directly without loading legacy client/broker/lease components. The graphical import entry still accepts ZIPs/directories; WEC files must first be decrypted with that local function. Four sets of public samples generated by real legacy components cover chunk boundaries; independent decryption and reencryption match byte for byte. See `tests/fixtures/wec1/`.
 
-旧 `manifest.wce` / `signature.wce` 账号 ZIP 在所有模式下均使用固定原 runtime 的 P-256 公钥独立验签；若附有 `manifest.json` / `signature.wes`，必须四项齐全、两份清单规范字节一致且两套签名均通过。WES1/WES2 固定支持已恢复的 `wcdb-prod-20260907-v240-6` 构建，未知构建明确拒绝。按用户选择，仅以签名内的生成时间核对构建/授权有效区间，不因导入当天已到期而拒绝；仍核对内容摘要、导出 ID、设备和构建绑定。WES1 验证固定根签发证书，WES2 明确为设备自签，不提供外部身份认证。WES2 已通过真实原生向量；WES1 只有静态规范和受控测试根，尚无真实正向归档。随后导入按已签大小和 SHA-256 流式检查全部载荷，全部成功后原子发布。默认新 ZIP 仍只生成 SHA-256 清单，不生成旧签名。
+Legacy account ZIPs with `manifest.wce` / `signature.wce` independently verify signatures using the fixed original runtime's P-256 public key in all modes. If `manifest.json` / `signature.wes` are also present, all four entries are required, the canonical manifest bytes must match, and both signatures must pass. WES1/WES2 explicitly support the restored `wcdb-prod-20260907-v240-6` build; unknown builds are rejected. Following the user's choice, the build/authorization validity interval is checked only against the signed generation time, rather than rejecting an archive because it has expired on the import date. Content digests, export ID, device binding, and build binding are still checked. WES1 verifies certificates issued by a fixed root; WES2 is explicitly device self-signed and provides no external identity authentication. WES2 has passed real native vectors. WES1 has only a static specification and a controlled test root, with no real positive archive yet. Import then streams and verifies every payload's signed size and SHA-256, publishing atomically only after all checks succeed. New default ZIPs still generate only SHA-256 manifests, without legacy signatures.
 
-WXGF 使用现有 `VoipEngine.dll` 解码，不经过旧 client/broker/lease。依据原生元数据选择静态不透明 JPEG、透明 PNG 或完整 GIF 动画，验证尺寸、帧数、逐帧时长、循环与透明信息；不是失败后换模式。源码启动独立 Python worker，Windows x64 冻结后端通过 `--wxgf-decode-worker input output` 启动同一个 EXE 的独立子进程，先分派 worker，再导入 API 和桌面 watchdog。两条路径共用 30 秒超时、导出取消及进程回收；非零返回、崩溃、越界长度与无效图片均明确失败。真实 onefile 验证保留 32×32 JPEG、透明 PNG 和三帧 GIF 的尺寸、透明信息、70/130/260 ms 动画时长及 loop=2；未知头和截断内容明确失败。这些受控样本不等于所有微信媒体或真实客户端交互验收。
+WXGF decoding uses the existing `VoipEngine.dll`, without legacy client/broker/lease components. Native metadata selects static opaque JPEG, transparent PNG, or complete GIF animation. Dimensions, frame count, per-frame duration, looping, and transparency are verified; there is no mode switch after failure. Source execution starts a separate Python worker. The Windows x64 frozen backend uses `--wxgf-decode-worker input output` to start the same EXE as an independent child process, dispatching the worker before importing the API and desktop watchdog. Both paths share a 30-second timeout, export cancellation, and process cleanup. Nonzero exit, crashes, out-of-range lengths, and invalid images fail explicitly. Real onefile verification preserved the dimensions and transparency of a 32×32 JPEG, transparent PNG, and three-frame GIF, including 70/130/260 ms frame durations and loop=2. Unknown headers and truncated content failed explicitly. These controlled samples do not constitute acceptance of all WeChat media or real-client interaction.
 
-本地 Persist／PersistStore／月缓存表情使用当前账号已验证的 code 派生 AES-CBC 密钥；绑定 source/account 与已有图片密钥，先完整解密，再按数据库精确范围取资源，最后校验消息 MD5 或同一消息的 extern 身份。不会猜测剥离未知前缀，也不会在读取时自动扫描微信进程或访问远程。默认离线消息列表及定位入口使用本地 emoji GET；404 表示真实缺失，422 明示容器/密钥/身份错误，用户显式下载使用保留的远程地址。真实样本和动画全帧证据见[表情验收记录](plans/2026-10-04-local-emoticon-and-wxgf-animation.md)。
+Local Persist/PersistStore/monthly-cache emoticons derive an AES-CBC key from the current account's verified code. They bind source/account to the existing image key, decrypt the complete container, extract resources at exact database ranges, and finally check the message MD5 or the same message's extern identity. Unknown prefixes are not guessed or stripped, and reads do not automatically scan the WeChat process or access remote resources. The default offline message list and location entry use local emoji GET: 404 means genuinely missing, while 422 identifies a container/key/identity error. Explicit user downloads use the retained remote address. Historical acceptance included real samples and evidence for every animation frame.
 
-在 Python 时间为 2027／2030 的验证进程中，旧构建清单被判定过期，默认解密、读取、文本导出及启动仍通过，未进入旧期限授权链。这些测试不改变 Windows 系统时钟，也不能证明解码 DLL 内部没有其他期限机制。
+In verification processes with Python time set to 2027/2030, the old build manifest was classified as expired, while default decryption, reading, text export, and startup still passed without entering the old time-limited authorization path. These tests did not change the Windows system clock and cannot establish that the decoder DLL contains no other expiry mechanism.
 
-本地 MP4 导出会检查容器长度，并通过项目已有 FFmpeg 完整解码视频及音轨；损坏、无帧、超时或缺少 FFmpeg 均明确失败。桌面启动会提供随依赖安装的 FFmpeg；单独启动 Python API 时，需要将 FFmpeg 加入 PATH，或把 `WECHAT_TOOL_FFMPEG` 设为其可执行文件的绝对路径。单个视频校验上限为 120 秒，用户取消会终止并回收解码进程。DAT 检查声明的 AES 明文长度及尾部边界；合并记录的已知媒体和文件复用同一导出链路，读取或解码错误不会变成正常缺失。
+Local MP4 export checks container length and uses the project's existing FFmpeg to fully decode video and audio. Corruption, no frames, timeout, and missing FFmpeg fail explicitly. Desktop startup supplies the FFmpeg installed with dependencies. When starting the Python API alone, add FFmpeg to PATH or set `WECHAT_TOOL_FFMPEG` to its executable's absolute path. Validation is limited to 120 seconds per video; user cancellation terminates and reaps the decoding process. DAT checks the declared AES plaintext length and tail boundaries. Known media and files in merged records reuse the same export path; read or decode errors do not become normal missing-resource results.
 
-桌面播放器加载失败或没有可显示的视频画面时，会明确提示并暂停播放。用户可点击“生成本地预览”，通过既有本地视频接口定位原文件，再用 FFmpeg 生成 H.264/AAC 副本；不自动转换。任务总限时 120 秒，关闭、取消或切换聊天会取消请求并等待转换进程退出。输入 MP4 边界、完整输出解码和转换前后原文件摘要均需通过；成功后按账号、来源、内容摘要及编码参数缓存并校验预览。原视频 GET 和导出保持原字节。真实 Electron 已验证 HEVC 无画面提示、点击、取消、再次生成及 640×368 画面解码。
+If the desktop player fails to load or has no displayable video frames, it shows an explicit message and pauses playback. Users can click **Generate local preview** to locate the original through the existing local-video API and produce an H.264/AAC copy with FFmpeg; conversion is not automatic. The task has a total 120-second limit. Closing, cancelling, or switching chats cancels the request and waits for the conversion process to exit. MP4 input boundaries, complete output decoding, and the original file's digest before and after conversion must all pass. Successful previews are cached and verified by account, source, content digest, and encoding parameters. Original-video GET and export preserve the original bytes. Real Electron verification covered the HEVC no-picture message, clicking, cancelling, generating again, and decoding 640×368 frames.
 
-解密页获取平台能力失败时会显示原始错误，不再假定 Windows 或默认启用图片扫描。数据库密钥按钮可重新检测后再继续，图片步骤提供显式重试；只有后端明确声明扫描能力可用才启用扫描。
+Failure to obtain platform capabilities on the decryption page shows the original error rather than assuming Windows or enabling image scanning by default. The database-key button can detect again before continuing; the image step offers an explicit retry. Scanning is enabled only when the backend explicitly declares the capability available.
 
-此模式只改变数据链路，不是全应用网络防火墙；AI 和原有显式联网功能仍由各自配置控制。当前第三阶段结果和未验收边界见[本轮计划](plans/2026-10-04-independent-default-and-exports.md)。
+This implementation changes the data path; it is not an application-wide network firewall. AI and existing explicitly networked features remain controlled by their own configuration. The historical phase-one and phase-three plans recorded the design, results, and acceptance boundaries described here.
 
-设计与验收边界见 [第一阶段计划](plans/2026-10-04-independent-offline-data.md) 和 [第三阶段实施记录](plans/2026-10-04-independent-default-and-exports.md)。
+## Independent key acquisition and batch-verified snapshots (first phase-two iteration)
 
-## 自主取密钥与整批验证快照（第二阶段首轮）
+`GET /api/get_keys?key_mode=pure_memory&db_storage_path=...` performs a read-only scan of running Windows WeChat and returns `method=pure_memory`, `verified=true`, `verified_roles`, and the key on success. Existing `key_v4` and `auto` modes use the same source path in offline mode. The endpoint does not present saved keys as scan results or immediately save candidates; keys are saved through the existing decryption flow after verification. Scanning and cross-database verification passed on local WeChat **4.1.15.13**; this does not establish compatibility with other versions.
 
-`GET /api/get_keys?key_mode=pure_memory&db_storage_path=...` 从运行中的 Windows 微信只读扫描，成功返回 `method=pure_memory`、`verified=true`、`verified_roles` 和密钥。现有 `key_v4`、`auto` 在 offline 模式同样走此源码路径。该接口不以已保存密钥冒充扫描结果，也不立即保存候选；验证后经原有解密流程保存。当前本机微信 **4.1.15.13** 已真实通过扫描及跨库验真，不能据此认定其他版本均兼容。
+`POST /api/decrypt/snapshot` accepts the same JSON fields as the existing decryption API: `key` and `db_storage_path`. The latter must be an absolute path to one account's complete `db_storage`. When active SHM exists on Windows, read-only file handles and the SQLite locking protocol pin each source database's committed WAL prefix. The fixed bytes are copied and checked repeatedly; ordinary appends beyond the commit boundary are allowed. Other sources retain batch-manifest, file-state, and SHA-256 stable observations. All business databases in the captured copy are then decrypted and integrity-checked. The response contains `generation_path`, `account_path`, per-database diagnostics, and the actual `guarantee`. This entry accepts only encrypted source databases that pass key authentication; plaintext SQLite uses the existing import entry. Lock conflicts, changed source identity, corrupt databases, copy failure, and persistence failure never return success or trigger implicit retries. Existing account directories are not replaced.
 
-`POST /api/decrypt/snapshot` 接收与现有解密接口相同的 JSON 字段 `key`、`db_storage_path`，后者必须是单账号完整 `db_storage` 的绝对路径。Windows 存在活动 SHM 时，通过只读文件句柄和 SQLite 锁协议固定每个源库的已提交 WAL 前缀；复制并重复核对固定字节，允许提交边界之后的正常追加。其他来源沿用整批清单、文件状态与 SHA-256 稳定观测。随后对捕获副本中的全部业务库解密和完整性检查，返回 `generation_path`、`account_path`、逐库诊断及实际 `guarantee`。该入口仅接受密钥认证通过的加密源库，明文 SQLite 使用原有导入入口。锁冲突、源身份变化、坏库、复制或持久化失败均不返回成功、不隐式重试；已有账号目录不被替换。
+New snapshots are placed under `verified_snapshots/generation-.../databases/<account>` in the current output directory. This standalone build endpoint creates candidates only; it does not switch the current account. The refresh service below handles verification and publication.
 
-新快照位于当前输出目录的 `verified_snapshots/generation-.../databases/<account>`。这个单独的构建接口只产生候选，不切换当前账号；下列刷新服务负责验证和发布。
+## Automatic synchronization and top-bar refresh
 
-## 自动同步与顶部刷新
+Loading the current local account on the chat page automatically starts synchronization. After each check finishes, it waits **30 seconds** before the next check. Once collection, decryption, and verification complete, the conversation list and current message window update while retaining reading position. The top-bar **Refresh messages** button triggers synchronization immediately; if a round is already running, it waits for that round to finish. The interface shows a short synchronization status, and on failure displays the original reason with **Retry synchronization**.
 
-聊天页加载当前本地账号后自动启动同步，每轮检查完成后等待 **30 秒**再检查。新数据采集、解密和验证完成后，更新会话列表与当前消息窗口并保留阅读位置。顶部“刷新消息”按钮会立即触发同步；已有同步正在执行时等待该轮完成。界面只显示简短同步状态，失败时显示原始原因并提供“重试同步”。
+The source must be the complete `db_storage` explicitly saved for that account, and its key must be strictly bound to that source. Imported historical records do not start local synchronization; top-bar refresh only rereads existing records. Accounts without a bound local-data directory show the reason explicitly. The backend status API declares this capability with `refresh_available` and `unavailable_reason`; startup validation still explicitly reports corrupt keys or sources.
 
-来源必须是该账号明确保存的完整 `db_storage`，密钥必须与这一来源严格绑定。导入的历史记录不启动本机同步，顶部刷新仅重新读取已有记录；未绑定本机数据目录的账号会明确显示原因。后端状态接口通过 `refresh_available` 和 `unavailable_reason` 声明这项能力，密钥或来源损坏仍由启动校验明确报错。
+Account switching stops the old account's task and waits for exit before starting the selected account. Leaving the chat page stops frontend status polling while the backend continues synchronizing the current account. Exiting the application stops the backend task; opening the chat account next time starts it automatically again.
 
-切换账号时，先停止旧账号任务，等它退出后再启动当前选择。离开聊天页会停止前端状态轮询，后端继续同步当前账号；退出项目会停止后端任务，下次打开聊天账号时重新自动启动。
-
-| 接口 | 参数和行为 |
+| Endpoint | Parameters and behavior |
 | --- | --- |
-| `GET /api/decrypt/snapshot-refresh/status?account=...` | 返回阶段、开关、最近检查/成功时间、发布修订号、占用及错误 |
-| `POST /api/decrypt/snapshot-refresh/start` | JSON `account`；`interval_seconds` 默认30 |
-| `POST /api/decrypt/snapshot-refresh/once` | JSON `account`；执行一轮；已开启同账号时唤醒检查 |
-| `POST /api/decrypt/snapshot-refresh/stop` | JSON `account`；停止后正在构建的候选也不会发布 |
+| `GET /api/decrypt/snapshot-refresh/status?account=...` | Returns stage, enabled state, latest check/success times, publication revision, occupancy, and error |
+| `POST /api/decrypt/snapshot-refresh/start` | JSON `account`; `interval_seconds` defaults to 30 |
+| `POST /api/decrypt/snapshot-refresh/once` | JSON `account`; runs one round, or wakes the check for an already-enabled matching account |
+| `POST /api/decrypt/snapshot-refresh/stop` | JSON `account`; candidates still being built will not publish after stopping |
 
-同一输出目录应只运行一个后端实例，发布和旧写入的协调锁目前在进程内。整个进程一次只刷新一个账号。聊天页负责按停止、等待退出、启动的顺序切换同步账号。开始接口的202只表示任务已受理，必须以状态中的 `revision`、`last_success_at` 和 `error` 判断结果。采集变化、认证/完整性错误、权限/磁盘错误、来源切换均停止任务；不会自行重试。停止若发生在解密期间，会等待实际构建结束，但不会切换当前快照。
+Run only one backend instance per output directory: the lock coordinating publication and legacy writes is currently process-local. The process refreshes only one account at a time. The chat page switches synchronization accounts in the order stop, wait for exit, then start. A 202 response from the start endpoint means only that the task was accepted; assess results through status `revision`, `last_success_at`, and `error`. Capture changes, authentication/integrity errors, permission/disk errors, and source changes stop the task without automatic retry. Stopping during decryption waits for the actual build to finish but does not switch the current snapshot.
 
-发布仅原子替换稳定账号目录中的 `_snapshot_current.json`，全局 output、密钥、AI 数据和用户资产目录不迁移。每个HTTP请求和后台导出/索引任务固定读取一个代次；聊天分页响应带 `snapshotGeneration`，前端发现代次不同时重新读取窗口。搜索索引和年度统计缓存按代次隔离，旧任务晚完成也不会覆盖新代结果。界面保留历史阅读位置；停留底部时刷新最新消息。
+Publication atomically replaces only `_snapshot_current.json` in the stable account directory. Global output, keys, AI data, and user-asset directories are not migrated. Each HTTP request and background export/index task reads one fixed generation. Chat pagination responses include `snapshotGeneration`; the frontend rereads the window if the generation changes. Search indexes and annual-statistics caches are generation-isolated, so late completion of an old task cannot overwrite new-generation results. The interface retains historical reading position and refreshes the latest messages when the reader is at the bottom.
 
-旧代和取消候选全部保留，不自动删除。快照副本累计容量不设固定上限；每次构建前将本轮估算占用（源文件大小的两倍）与磁盘当前可用空间比较，空间不足时明确停止。磁盘检查属于构建前预检，并非文件系统硬配额。管理快照期间，旧解密/同名导入/实时同步写入会明确拒绝。完整账号 ZIP 和账号删除已接通，见下文。
+Old generations and cancelled candidates are retained without automatic deletion. Accumulated snapshot-copy capacity has no fixed limit. Before each build, its estimated footprint (twice the source-file size) is compared with current free disk space; insufficient space stops explicitly. This disk check is a build preflight, rather than a filesystem hard quota. While snapshots are managed, legacy decryption, same-name import, and live-synchronization writes are explicitly rejected. Complete account ZIP export and account deletion are integrated as described below.
 
-`per_database_committed_prefix` 表示所有库都固定了各自的提交边界；结果包含每库页大小、提交帧数和页数，`captured_prefix_unchanged=true`，持续写入的整个源目录不声称不变（`source_unchanged=null`）。`stable_observation` 表示复制窗口内观测到源清单、状态及内容不变；混合来源返回 `mixed_per_database_capture`。所有模式均经过页面/WAL认证与 SQLite 完整性检查，都不代表跨库全局事务或新消息即时通知。Windows 在采集前通过 DMS 锁判断 SHM 的活动所有权：有活动连接时固定已提交 WAL 前缀；关闭连接遗留的 SHM 由独占 DMS 锁阻止重初始化，主库和完整 WAL 按稳定观测校验，不使用遗留 SHM 头定义提交边界。在线采集失败不会回退到其他模式。
+`per_database_committed_prefix` means every database has its own pinned commit boundary. Results include each database's page size, committed frame count, and page count, with `captured_prefix_unchanged=true`; the continuously written source directory as a whole is not claimed unchanged (`source_unchanged=null`). `stable_observation` means the source manifest, state, and content were observed unchanged during the copy window. Mixed sources return `mixed_per_database_capture`. Every mode performs page/WAL authentication and SQLite integrity checks; none represents a global transaction spanning databases or immediate new-message notification. Before capture on Windows, the DMS lock determines active SHM ownership: active connections use a pinned committed WAL prefix. For SHM left by closed connections, an exclusive DMS lock prevents reinitialization, and stable observations verify the main database and complete WAL instead of using stale SHM headers to define the commit boundary. Online capture failure does not fall back to another mode.
 
-最新本机微信 4.1.15.13 验收完成 600.05 秒真实发送观察、19 次定时检查、14 个已发布代次；每代固定 24 个源库并验证 21 个业务库，6 代含实际已提交 WAL。新增 47 条消息（文本 17、图片 8、表情 19、文件类型 3），消息时间跨度 516 秒，滚动 30 秒峰值 10 条。21 轮实时旧/新 reader、SQL、API、JSON ZIP 比对与 14 代重核一致，旧文本固定 183 条，新文本达到 200 条。最后源检查在窗口终点前约 18 秒，未追加窗口外捕获；不据此承诺任意写入频率或所有特殊消息附件内容均已覆盖。观察器结束、微信源写入为零、全局密钥未变。此前 363 秒失败的报告保留；修复与新证据见[当前功能验收记录](plans/2026-10-04-remaining-functional-acceptance.md)。
+The latest local WeChat 4.1.15.13 acceptance included 600.05 seconds observing real sends, 19 scheduled checks, and 14 published generations. Each generation pinned 24 source databases and verified 21 business databases; 6 generations contained actual committed WAL. There were 47 new messages (17 text, 8 images, 19 emoticons, and 3 file-type messages), spanning 516 seconds with a rolling 30-second peak of 10 messages. All 21 rounds of live old/new reader, SQL, API, and JSON ZIP comparisons agreed with rechecks of the 14 generations. Old text remained fixed at 183 messages; new text reached 200. The final source check occurred approximately 18 seconds before the observation window ended; no capture outside that window was appended. This does not promise coverage for arbitrary write rates or the contents of every special-message attachment. The observer exited, WeChat-source writes were zero, and global keys remained unchanged. The preceding failed 363-second report was retained along with the subsequent fix and evidence.
 
-### 独立账号 ZIP 与删除
+### Independent account ZIPs and deletion
 
-离线模式使用现有“导出账号归档”入口（`POST /api/account/archive_export`）。数据库固定在任务创建时的快照代次，资源来自稳定账号目录；不打包旧根数据库及其日志、来源路径、密钥、快照指针和派生缓存。数据库仍有活动 WAL/journal 时明确失败，不能将不完整副本当作备份。
+Offline mode uses the existing **Export account archive** entry (`POST /api/account/archive_export`). Databases are fixed to the snapshot generation at task creation, while resources come from the stable account directory. Old root databases and their logs, source paths, keys, snapshot pointers, and derived caches are not packaged. Active WAL/journal files cause an explicit failure; incomplete copies cannot count as backups.
 
-新 ZIP 的 `_integrity/checksums.json` 使用 `format=xwechat-sha256`、`version=1`，记录全部文件的路径、长度和 SHA-256，摘要取自 ZIP 实际字节。它提供内容完整性校验，不是签名或来源认证。导入沿用现有 ZIP 入口，严格检查清单、文件集合、路径、长度、摘要及 SQLite `integrity_check`；全部成功后安装，同名原账号保留备份，失败回滚。数据库按字节复制，不修改导入源。
+The new ZIP's `_integrity/checksums.json` uses `format=xwechat-sha256` and `version=1`, recording every file's path, length, and SHA-256. Digests come from actual ZIP bytes. It provides content-integrity checking, rather than a signature or provenance authentication. Import retains the existing ZIP entry and strictly checks the manifest, file set, paths, lengths, digests, and SQLite `integrity_check`. Installation occurs only after all checks pass; a same-name original account is backed up, and failure rolls back. Databases are copied byte for byte without modifying the import source.
 
-显式删除账号先阻止新工作、停止并等待本账号刷新。读取请求、排队导出/索引/转写、卸载到线程的读取、内部文件下载及 AI 任务尚未实际退出时返回 409，数据保留。空闲后预检并删除所属稳定目录、所有已发布和未发布代次、内部导出缓存、头像缓存、导入备份及密钥。原始微信源不属于删除目标；用户另选目录保存的归档也不随账号删除。未知归属残留、链接和路径越界明确拒绝；执行期失败返回阶段和已清理项目，可以明确重试。Windows文件占用后的重试使用预先持久化的目录身份，不能据此删除未知目录。若账号已删除而列表刷新失败，会明确报告删除已完成。协调范围仍是同一输出目录的单后端进程。
+Explicit account deletion first blocks new work, stops the account's refresh, and waits for it. If read requests, queued exports/indexing/transcription, reads offloaded to threads, internal file downloads, or AI tasks have not actually exited, it returns 409 and retains the data. Once idle, it preflights and deletes the owned stable directory, all published/unpublished generations, internal export cache, avatar cache, import backups, and keys. Original WeChat sources are outside the deletion target; archives saved to other user-selected directories are also retained. Unknown ownership, links, and out-of-bounds paths are explicitly rejected. Execution-time failure reports the stage and items already cleaned, allowing explicit retry. Retries after Windows file-lock failures use directory identities persisted beforehand and cannot delete unknown directories. If account deletion succeeded but list refresh failed, completion of deletion is reported explicitly. Coordination remains limited to one backend process per output directory.
 
-真实归档往返验证：21个数据库导入前后摘要一致且 SQLite 完整性通过，160个会话和抽查100条文本消息无差异；旧原生/外网调用探针和微信源写入探针均为0。验收只写隔离输出，未删除真实账号。详情见 [本步计划与验证](plans/2026-10-04-independent-account-archive.md)。
+Real archive round-trip verification found identical digests and successful SQLite integrity checks for 21 databases before and after import, with no differences in 160 conversations or a sample of 100 text messages. Legacy-native/external-network call probes and WeChat-source write probes were all 0. Acceptance wrote only isolated output and did not delete a real account.
 
-## 源码提交边界
+## Source commit boundaries
 
-提交源码、测试、依赖锁文件、开发工具、必要资源和公开证书。保留已有第三方声明。
+Commit source, tests, dependency lockfiles, development tools, necessary resources, and public certificates. Retain existing third-party notices.
 
-以下内容只保留在本地，由 `.gitignore` 排除：
+The following remain local and are excluded by `.gitignore`:
 
-- `.env`、个人配置、聊天数据库、密钥及 `private/` 签名材料。
-- `output/`、`data/`、`local_search_models/`、日志、缓存及临时验证文件。
-- `.venv/`、`node_modules/`、生成的前端/后端资源及 `desktop/dist/` 安装产物。
-- 本机验收报告与工具观测记录。
+- `.env`, personal configuration, chat databases, keys, and `private/` signing material.
+- `output/`, `data/`, `local_search_models/`, logs, caches, and temporary verification files.
+- `.venv/`, `node_modules/`, generated frontend/backend resources, and `desktop/dist/` installer output.
+- Local acceptance reports and tool-observation records.
 
-`.gitignore` 不会自动移除已经被 Git 跟踪的文件，提交前仍须核对暂存区。源码变更不会自动修改已安装程序或已有 Release 附件。
+`.gitignore` does not automatically remove files already tracked by Git; inspect the staging area before committing. Source changes do not automatically modify installed applications or existing Release attachments.

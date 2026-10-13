@@ -1,39 +1,39 @@
-# 应用资料备份与恢复
+# Application Data Backup and Restore
 
-在 **设置 → 资料备份** 中选择微信账号，点击导出，下载该账号的应用资料 ZIP。保存的资料通常含聊天原文和附件，请将文件保存在自己信任的位置。备份为普通 ZIP，SHA-256 用于检查完整性，不是加密或来源认证。
+In **Settings → Data Backup**, select a WeChat account and click Export to download a ZIP of that account's application data. Saved materials usually contain original chat text and attachments, so store the file somewhere you trust. The backup is an ordinary ZIP; SHA-256 checks integrity and does not provide encryption or source authentication.
 
-## 备份内容
+## Backup Contents
 
-| 内容 | 保留范围 |
+| Content | What is retained |
 | --- | --- |
-| 事项 | 标题、状态、期限、来源、变更历史、提醒修订以及关联的未投递提醒 |
-| 资料夹与专题 | 资料夹名称、全部已保存版本、版本内材料、安排变化与待修正结论 |
-| 当前资料 | 消息原文副本、笔记、标签、人工核验标记，以及已保存的附件提取/OCR 文字副本 |
-| 已保存报告 | 当前编辑正文、原始回答、保存时的引用证据和分析范围等原有元数据 |
-| 保存搜索 | 名称及完整筛选条件，包括固定日期或滚动日期设置 |
-| 附件 | 当前资料及全部专题历史版本引用的已保存实体；同一副本不重复打包 |
+| Matters | Titles, status, deadlines, sources, change history, reminder revisions, and associated undelivered reminders |
+| Folders and topic archives | Folder names, all saved versions, materials within each version, schedule changes, and conclusions requiring correction |
+| Current materials | Copies of original message text, notes, tags, manual verification markers, and saved copies of attachment extraction/OCR text |
+| Saved reports | The current edited body, original answer, citation evidence captured when saving, and existing metadata such as the analysis scope |
+| Saved searches | Names and complete filters, including fixed or rolling date settings |
+| Attachments | Saved files referenced by current materials and all historical topic versions; each copy is packaged only once |
 
-未保存的编辑框草稿不在备份中。微信聊天数据库、原附件来源目录、未保存的 Agent 对话与运行、模型配置和密钥、可重建的检索/OCR 缓存不属于这个 ZIP。聊天数据继续使用原来的“导出账号归档”；备份中已有的原文、报告证据和 OCR 文字副本可独立读取，“打开原消息”仍需对应聊天数据库。
+Unsaved drafts in editing fields are not included. This ZIP excludes WeChat chat databases, original attachment source directories, unsaved Agent conversations and runs, model configuration and keys, and rebuildable retrieval/OCR caches. Continue using the existing "Export Account Archive" for chat data. Original text, report evidence, and OCR text copies already in the backup can be read independently; "Open Original Message" still requires the corresponding chat database.
 
-导出基于一次一致的记录快照。当前资料后来发生变化不会改写已生成的 ZIP；附件复制期间保留相关副本，缺件、摘要不符或读写错误会明确失败，不跳过后报告成功。
+Export uses a single consistent record snapshot. Later changes to current materials do not alter an already generated ZIP. Relevant attachment copies are retained while files are copied; missing files, digest mismatches, or read/write errors fail explicitly rather than being skipped and reported as success.
 
-## 恢复到本机资料库
+## Restore to the Local Library
 
-1. 在“资料备份”中选择已下载的 ZIP，点击 **“恢复缺失资料，保留本机版本”**。无需先导入原微信聊天账号。
-2. 应用在临时目录验证格式、记录关系、文件集合、大小和 SHA-256，然后把缺失记录及附件写入当前使用的 `ai/ai.sqlite3` 和 `ai/library/`。临时目录是内部校验步骤，无需手动搬文件。
-3. 恢复完成后显示实际新增、保留数量和未纳入条目的原因。点击 **“查看资料”** 或 **“查看事项”** 即可使用，也可在这两个页面的“应用资料账号”中切换账号。
-4. 已打开的同账号资料、事项、保存搜索和专题会重新读取数据。资料夹可查看、改名或删除恢复的搜索条件；重新执行搜索、打开原消息及以聊天原文更新事项期限仍需导入对应聊天数据库。
+1. In "Data Backup", select the downloaded ZIP and click **"Restore Missing Materials, Keep Local Versions"**. You do not need to import the original WeChat account first.
+2. The application validates the format, record relationships, file set, sizes, and SHA-256 in a temporary directory, then writes missing records and attachments to the active `ai/ai.sqlite3` and `ai/library/`. The temporary directory is an internal validation step; no manual file moves are required.
+3. After restoration, the application shows actual added and retained counts and reasons for excluded items. Click **"View Materials"** or **"View Matters"** to use them. You can also switch accounts using "Application Data Account" on either page.
+4. Open materials, matters, saved searches, and topic archives for the same account reload their data. In the folder view, you can inspect, rename, or delete restored search criteria. Rerunning searches, opening original messages, and updating matter deadlines from original chat text still require importing the corresponding chat database.
 
-**恢复固定采用“补缺，冲突保留本机”。** 已存在记录不会被备份覆盖，本机新增的资料不会被删除。专题版本序号冲突时保留本机版本；依赖冲突版本的后续历史会明确列为未纳入。其他账号、模型配置和未保存 Agent 运行不受影响。文件已丢失但本机记录的附件摘要与备份一致时，可补回实体；已有实体摘要冲突则明确拒绝本次恢复，不覆盖本机文件。
+**Restoration always adds missing items and keeps local versions on conflict.** Existing records are not overwritten by the backup, and materials added locally are not deleted. When topic version numbers conflict, the local version is retained; subsequent history that depends on the conflicting version is explicitly listed as excluded. Other accounts, model configuration, and unsaved Agent runs are unaffected. A missing attachment file can be restored when its digest in the local record matches the backup. If an existing file's digest conflicts, this restoration is explicitly rejected without overwriting the local file.
 
-仅为本次新恢复事项导入其备份中的未投递提醒。已有事项及提醒状态保持本机版本；重复恢复不会重新排队这些旧提醒。恢复的新事项按原提醒设置参与现有调度，可能出现已到期提醒。通知入队不等于用户已经看到系统通知。
+Only undelivered reminders for matters newly restored in this operation are imported from the backup. Existing matters and reminder states retain their local versions; repeated restoration does not queue these old reminders again. Newly restored matters participate in the existing scheduler according to their original reminder settings, so overdue reminders may appear. Queuing a notification does not mean the user has seen the system notification.
 
-校验或写入失败不会提交部分新资料；若写入已完成而暂存文件清理失败，会明确显示“资料已恢复”及清理错误。连接中断时显示结果未确认，不自动重试，请先查看本机资料核对。恢复过程中本机资料发生变化时会明确返回冲突，需要用户重新发起。
+Validation or write failures do not commit partial new materials. If writing completes but cleanup of staged files fails, the application explicitly shows "Materials Restored" together with the cleanup error. A connection interruption shows that the result is unconfirmed and does not trigger an automatic retry; inspect local materials first. Changes to local materials during restoration explicitly return a conflict, requiring the user to start again.
 
-归档数量中的“笔记”和“报告”统计备份里的当前资料；历史版本内容不重复计入这两个数量。“附件”是当前及历史引用合并后的实体数量。新增/保留数量反映此次真实提交，不能将备份总数当作新增数。完整性校验不代表报告结论正确、OCR 已人工核验或来源经过认证。
+The archive's "Notes" and "Reports" counts cover current materials in the backup; historical version contents are not counted again in those two totals. "Attachments" counts the combined set of files referenced by current and historical materials. Added/retained counts reflect the actual commit in this operation; the backup total must not be presented as the added count. Integrity validation does not establish that report conclusions are correct, OCR has been manually verified, or sources are authenticated.
 
-## 验证记录
+## Verification Record
 
-本次正式恢复通过后端 167 项、前端 132 项聚焦回归、生产构建及真实 HTTP 浏览器流程。受控环境从空库恢复，随后编辑笔记、读取历史附件、再次恢复及更新事项均通过；重复恢复各类新增数为 0，本机修改与原有模型配置保留。没有改写真实用户资料、打包或执行大附件与跨机器验收。详细范围见 [恢复到当前资料库实施记录](superpowers/plans/2026-10-13-application-data-live-restore.md)。
+Restoration into the active library passed 167 focused backend regressions, 132 focused frontend regressions, a production build, and a browser workflow over real HTTP. In a controlled environment, restoration from an empty library, subsequent note editing, historical attachment reads, repeated restoration, and matter updates all passed. Repeated restoration added 0 items in every category, and local changes and existing model configuration were retained. No real user materials were modified, no package was built, and large-attachment or cross-machine acceptance was not performed.
 
-此前仅隔离恢复的测试记录保留在 [原实施记录](superpowers/plans/2026-10-13-application-data-backup.md)，不作为正式恢复的验收依据。更新源码后，正在运行的旧后端需重启才能加载新接口。
+Earlier tests covered only isolated restoration and do not serve as acceptance evidence for restoration into the active library. After updating the source, an already running older backend must be restarted to load the new endpoints.

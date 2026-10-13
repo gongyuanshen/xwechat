@@ -1,6 +1,6 @@
 # Moments
 
-Use this for 朋友圈, posts, likes, comments, shared links, and Moments media.
+Use this for Moments posts, likes, comments, shared links, and media.
 
 ## Flow
 

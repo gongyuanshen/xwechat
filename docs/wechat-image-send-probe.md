@@ -1,32 +1,30 @@
-# 图片发送首期：真机入口验证记录
+# Initial image sending: real-machine entry verification
 
-## 2026-10-05：移除旧回执后的恢复
+## 2026-10-05: restoration after removing the old receipt path
 
-本轮用户要求优先验证不注入、不 Hook、不抢焦点的后台发送；没有可靠路径时，明确允许恢复 Windows UI 自动化。
+For this iteration, the user prioritized verifying background sending without injection, hooks, or taking focus, and explicitly allowed restoring Windows UI automation if no reliable path was available.
 
-- 当前实机仍为 Weixin 4.1.15.13。完整的限定只读遍历共读到 133 个控件，`chat_input_field` 位于第 18 层；先前第 8 层查询未找到输入框，不能作为微信不暴露后台控件的证据。
-- 微信处于后台时，对“发送文件”按钮调用一次原始 UIA `Invoke`，返回 `S_OK`，但两秒内没有出现属于微信的原生文件框；调用后的前台状态发生变化，随后只读复核前台为微信。没有选择文件、写入消息或点击发送。这条路径没有通过后台发送验收。
-- 恢复路线复用现有 Qt 会话选择、原生文件框、共享发送锁和防重复记录。没有引入业务 DLL 注入、微信内部函数 Hook、内存修改或已删除的 native broker / realtime reader。
-- 图片按真实内容完整解码并校验 PNG/JPEG 格式、扩展名和内容指纹；提交前再次核对文件内容、会话及单张附件草稿。只提交一次。
-- 当前 UIA 无法可靠关联图片内容与出站身份，因此提交后仍返回 `WECHAT_SEND_UNCONFIRMED`，由用户在微信中核对。观察到图片气泡不构造 `success=true`；自动同步快照也不冒充本次图片的送达回执。
-- 前端支持原有选图、粘贴和混合附件入口，按类型调用图片或文件接口。待核对时保留附件并暂停后续项；“已在微信确认发送”仅清理本地对应项，“已核对未发送，允许重试”仅解锁，两者均不自动续发或重发。
-- 图片发送会短暂激活微信，界面显示此限制。源码桌面程序重启后加载新的后端；本轮不重建安装包。
+- The current machine still runs Weixin 4.1.15.13. A complete bounded read-only traversal read 133 controls, with `chat_input_field` at depth 18. The earlier depth-8 search did not find the input; that result cannot establish that WeChat exposes no background controls.
+- With WeChat in the background, one raw UIA `Invoke` on **Send file** returned `S_OK`, but no WeChat-owned native file dialog appeared within two seconds. Foreground state changed after the call; a subsequent read-only check found WeChat in the foreground. No file was selected, message written, or send button clicked. This path did not pass background-send acceptance.
+- Restoration reused existing Qt conversation selection, native file dialogs, the shared send lock, and duplicate-prevention records. It introduced no business-DLL injection, internal WeChat function hooks, memory modification, or deleted native broker / realtime reader.
+- Images are fully decoded from their actual content, with PNG/JPEG format, extension, and content-fingerprint checks. Before submission, file content, conversation, and the single-attachment draft are checked again. Submission is attempted only once.
+- Current UIA cannot reliably associate image content with outgoing identity, so after submission it still returns `WECHAT_SEND_UNCONFIRMED` for the user to check in WeChat. Observing an image bubble does not construct `success=true`; automatic synchronization snapshots do not pretend to be delivery receipts for that image.
+- The frontend supports existing image selection, paste, and mixed-attachment entries, calling the image or file API by type. Unconfirmed results retain the attachment and pause later items. **Confirmed sent in WeChat** clears only the corresponding local item; **Checked not sent; allow retry** unlocks it only. Neither automatically resumes or resends.
+- Image sending briefly activates WeChat, and the interface displays this limitation. Restarting the source desktop application loads the new backend; installers were not rebuilt in this iteration.
 
-本轮验证：发送相关后端 12 个文件共 307 项通过，前端相关 100 项通过，桌面附件 42 项通过；独立审查通过。实机无发送验收使用项目 `frontend/public/logo.png`，在“文件传输助手”完成选图、单图片草稿核验和两次源文件检查，在发送标记之前主动中止；`submission_attempted=false`，测试草稿已清空。真实外发验收待用户明确授权收件对象及图片，不把无发送验收表述为真实发送成功。
+Verification in this iteration: 307 backend send-related tests across 12 files, 100 relevant frontend tests, and 42 desktop attachment tests passed; independent review passed. Real-machine verification without sending used the project's `frontend/public/logo.png` in File Transfer Assistant, completing image selection, single-image draft verification, and two source-file checks. It deliberately stopped before marking submission; `submission_attempted=false`, and the test draft was cleared. Real outbound acceptance awaits explicit user authorization for the recipient and image. Verification without sending is not described as successful real sending.
 
-以下为之前的实现与验收记录；历史成功发送不替代本轮真实发送验收。
+The following records describe the earlier implementation and acceptance. Historical successful sends do not replace real-send acceptance for the current iteration.
 
-检查日期：2026-10-01（Asia/Singapore）。
+Inspection date: 2026-10-01 (Asia/Singapore).
 
-## 结果
+## Results
 
-已验证原生选图入口及图片草稿状态，并接入桌面选图、预览、独立图片 API 和 Qt UIA 发送流程。
-自动化测试覆盖单次提交和结果不确定时的明确提示。用户已于 2026-10-01 通过项目桌面程序向文件传输助手发送桌面 PNG，并提供微信右侧 17:16 新图片的截图，确认本次真实发送成功。
-当前 UIA 仍无法自动证明图片方向；前端提供人工确认流程，不能将这次人工验收视为未来每次发送的自动成功依据。
+The native image-selection entry and image-draft state were verified, and desktop image selection, preview, a separate image API, and Qt UIA sending were integrated. Automated tests cover single submission and explicit uncertain-result presentation. On 2026-10-01, the user sent a desktop PNG to File Transfer Assistant through the project's desktop application and supplied a screenshot showing a new right-side image at 17:16, confirming that real send succeeded.
 
-初次探测时，Windows 微信版本为 4.1.15.13，与仓库文字发送适配文档中的版本一致。
-主窗口已恢复并通过现有桥接逻辑激活。窗口截图显示已登录的“文件传输助手”聊天。
-现有代码的最后一次只读探测结果为：
+Current UIA still cannot automatically prove image direction. The frontend provides manual confirmation; that manual acceptance cannot establish automatic success for every future send.
+
+During the first probe, Windows WeChat was version 4.1.15.13, matching the repository's text-send adapter documentation. The main window was restored and activated through the existing bridge. The screenshot showed the logged-in File Transfer Assistant chat. The last read-only probe through existing code returned:
 
 ```json
 {
@@ -37,89 +35,76 @@
 }
 ```
 
-UI Automation 只枚举到以下两层：
+UI Automation enumerated only these two levels:
 
 ```text
 WindowControl: mmui::MainWindow
 └─ PaneControl: MMUIRenderSubWindowHW
 ```
 
-没有读取到 `chat_message_page`、`chat_input_field`、搜索输入框或附件按钮。
-当时无法据真实控件实现图片选择、发送及回执。此阻塞在用户重新打开微信后的复查中解除，见后文。
+It could not read `chat_message_page`, `chat_input_field`, the search field, or the attachment button. At that point, real controls could not support image selection, sending, or receipt confirmation. This blocker cleared during the recheck after the user reopened WeChat, as recorded below.
 
-## 已完成的区别性检查
+## Completed diagnostic checks
 
-- 核实微信版本、主窗口、前台状态和已登录界面，排除本次检查处于隐藏窗口或未登录界面的情况。
-- 分别使用显式 UIA 线程初始化和普通主线程查询，结果相同。
-- 核实安装的 `uiautomation==2.0.29` 的控件枚举使用 `RawViewWalker`，并非 Control View 过滤掉聊天控件。
-- 通过官方 `AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, IID_IAccessible, ...)` 查询，返回 `S_OK`；随后 UIA 控件树仍只有外层窗口和渲染区域。接口调用成功不等于聊天控件可用。
-- 临时订阅 UIA 焦点事件后重新查询，控件树未改变；订阅已移除。
-- 只读检查系统屏幕阅读器标志为关闭；没有修改系统辅助功能设置。该标志本身不足以证明根因。
-- 最后通过现有 `WeChatBridge.probe_status()` 与 `WeChatQtUI.locate_input()` 复核上述结果。
+- Verified WeChat version, main window, foreground state, and logged-in screen, excluding a hidden window or logged-out screen for this inspection.
+- Queried with explicit UIA thread initialization and with an ordinary main-thread query; results matched.
+- Verified that installed `uiautomation==2.0.29` uses `RawViewWalker` for enumeration; Control View filtering did not remove the chat controls.
+- Called the official `AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, IID_IAccessible, ...)`, which returned `S_OK`; subsequent UIA enumeration still showed only the outer window and rendering area. Successful API invocation does not establish chat-control availability.
+- Temporarily subscribed to UIA focus events and queried again; the control tree did not change. The subscription was removed.
+- Read the system screen-reader flag, which was off, without changing system accessibility settings. That flag alone does not establish the root cause.
+- Rechecked the results through existing `WeChatBridge.probe_status()` and `WeChatQtUI.locate_input()`.
 
-以上初次探测未选择图片、写入草稿或点击发送。
+The initial probe selected no image, wrote no draft, and clicked no send button.
 
-## 尚未确定的事项
+## Unresolved questions
 
-初次微信进程为何未暴露聊天辅助功能控件，根因尚未确定。以上结果不能推出 Windows 无法自动发送图片。
-恢复控件访问并验证选图后的草稿流程后，实施继续进行。
+The root cause of the initial WeChat process not exposing chat accessibility controls remains unknown. The results do not imply that Windows cannot send images automatically. Implementation continued after restoring control access and verifying the draft flow following image selection.
 
-## 官方依据
+## Official references
 
-- [Qt 5.15 Windows 无障碍查询处理器](https://github.com/qt/qtbase/blob/5.15/src/plugins/platforms/windows/uiautomation/qwindowsuiaaccessibility.cpp#L68-L85)
+- [Qt 5.15 Windows accessibility query handler](https://github.com/qt/qtbase/blob/5.15/src/plugins/platforms/windows/uiautomation/qwindowsuiaaccessibility.cpp#L68-L85)
 - [Microsoft AccessibleObjectFromWindow](https://learn.microsoft.com/en-us/windows/win32/api/oleacc/nf-oleacc-accessibleobjectfromwindow)
 - [Microsoft WM_GETOBJECT](https://learn.microsoft.com/en-us/windows/win32/winauto/wm-getobject)
 - [Microsoft AddFocusChangedEventHandler](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomation-addfocuschangedeventhandler)
 
-## 用户重新打开微信后的复查
+## Recheck after the user reopened WeChat
 
-2026-10-01，用户报告已打开微信并手动发送了一张图片，随后重新检查。
-本次微信进程和主窗口句柄与前次不同；不能据此断言前次缺失控件的根因。
+On 2026-10-01, the user reported opening WeChat and manually sending an image. The follow-up check found a different WeChat process and main-window handle; this does not establish the earlier root cause of missing controls.
 
-- 已读到 `chat_message_page`、`chat_input_field` 和准确标题“文件传输助手”。
-- 附件按钮位于 `tool_bar_accessible.chatinput_toolbar_left_view`，名称为“发送文件”，类为 `mmui::XButton`。
-- 已通过单次 UIA 定位点击打开微信拥有的原生文件选择对话框，窗口类为 `#32770`，标题为“选择文件”。
-- 文件名输入框为 `EditControl`，`AutomationId=1148`；取消按钮为 `ButtonControl`，`AutomationId=2`。
-- 对话框已取消，未选择文件。后续操作必须复核前台和窗口 owner，不能把任意前台窗口当成微信对话框。
-- 已读到用户手动发送的图片消息，类型为 `ListItemControl`，名称“图片”，类为 `mmui::ChatBubbleReferItemView`；它没有暴露发送者、文件路径或图片内容属性。
-- 空输入框的 ValuePattern 和 TextPattern 均可读，文本长度和嵌入对象数量均为零。
+- `chat_message_page`, `chat_input_field`, and the exact File Transfer Assistant title were readable.
+- The attachment button belonged to `tool_bar_accessible.chatinput_toolbar_left_view`, with a name translated as **Send file** and class `mmui::XButton`.
+- One UIA-located click opened a WeChat-owned native file dialog, class `#32770`, with a title translated as **Select file**.
+- The filename field was `EditControl`, `AutomationId=1148`; the cancel button was `ButtonControl`, `AutomationId=2`.
+- The dialog was cancelled without selecting a file. Later operations must recheck the foreground window and owner instead of treating any foreground window as WeChat's dialog.
+- The user's manually sent image was readable as `ListItemControl`, with a name translated as **Image**, class `mmui::ChatBubbleReferItemView`. It exposed no sender, file path, or image-content properties.
+- Both ValuePattern and TextPattern were readable for the empty input, with zero text length and zero embedded objects.
 
-用户随后授权向“文件传输助手”发送指定绿色边框测试图一次。
-已在准确目标会话通过微信文件选择框选入该图；打开控件为 `SplitButtonControl`、`AutomationId=1`。
-选择完成后，输入框 ValuePattern 和 TextPattern 都是一个 U+FFFC 对象字符，嵌入子对象数量为零。
-没有额外图片确认弹窗，也没有自动提交。探测结束移除了草稿，未点击发送；这次发送授权尚未使用。
+The user subsequently authorized one send of a specified green-bordered test image to File Transfer Assistant. It was selected through WeChat's file dialog in the exact target conversation. The open control was `SplitButtonControl`, `AutomationId=1`. After selection, ValuePattern and TextPattern each contained one U+FFFC object character, with zero embedded child objects. No extra image-confirmation dialog appeared and no automatic submission occurred. The probe removed the draft without clicking send; that authorization remained unused at this point.
 
-## 实现及回执边界
+## Implementation and receipt boundaries
 
-- 桌面原生对话框单选 JPG/JPEG/PNG，预览不向浏览器暴露任意文件读取入口。
-- `POST /api/chat/send/image` 校验本地绝对路径、文件读取、扩展名与实际格式一致，并完整解码图片。
-- 图片和文字共用发送锁及会话冷却时间；图片按内容指纹防重复。
-- Qt UIA 先要求微信草稿为空，复核准确会话及前台窗口，选择文件后要求恰好一个图片对象，最后只点击一次发送。
-- 发送后检查图片草稿清空且消息列表恰好新增一个图片元素；缺失控件、草稿冲突或结果不确定均明确报错，不自动重试。
-- 当前 UIA 不提供该图片的发送者、原始内容或服务端送达信息；图片元素的位置也覆盖整个消息行，无法据此判断方向。因此即使观察到草稿清空及一个新图片，仍返回 `WECHAT_SEND_UNCONFIRMED`，要求人工核对，不构造成功回执。完整自动回执验收尚未通过。
-- 会话 `account` 字段延续现有文字接口语义，不负责切换或确认微信当前登录账号。
+- The native desktop dialog selects one JPG/JPEG/PNG; previews do not expose arbitrary file reading to the browser.
+- `POST /api/chat/send/image` validates the local absolute path, readability, extension/actual-format agreement, and complete image decoding.
+- Images and text share the send lock and conversation cooldown; images use content fingerprints for duplicate prevention.
+- Qt UIA first requires an empty WeChat draft, verifies the exact conversation and foreground window, requires exactly one image object after selection, and clicks send only once.
+- After sending, it checks that the image draft cleared and exactly one new image element appeared in the message list. Missing controls, draft conflicts, and uncertain results raise explicit errors without automatic retry.
+- Current UIA provides no sender, original content, or server delivery information for that image. Its element spans the whole message row, so position cannot establish direction. Even if the draft clears and one image appears, the adapter returns `WECHAT_SEND_UNCONFIRMED` for manual checking instead of constructing a success receipt. Complete automatic-receipt acceptance has not passed.
+- Conversation `account` retains existing text-API semantics and does not switch or confirm the currently logged-in WeChat account.
 
-## 用户真机验收
+## User hardware acceptance
 
-重启使用本次源码的桌面程序，选择“文件传输助手”，点击“图片”选择一张明确的 JPG/PNG，
-核对预览和目标后点击“发送图片”。微信出现对应的新出站图片才算真实发送通过。
-若失败，保留所选图片并展示具体错误；结果不确定时先检查微信，避免重复提交。
-当前版本发送后可能在微信正确出现图片，同时软件提示无法确认发送方向；请反馈微信是否出现对应的右侧新图片。
-本次未重建安装版 EXE，旧安装程序不包含上述改动。
+Restart the desktop application using this source, select File Transfer Assistant, and click **Image** to choose an explicit JPG/PNG. Check the preview and target, then click **Send image**. Real sending passes only when the corresponding new outgoing image appears in WeChat.
 
-### 待确认状态的处理
+On failure, the selected image remains and the specific error is shown. For uncertain results, check WeChat before another submission to avoid duplicates. In this version, the image may correctly appear in WeChat while the application reports that its send direction cannot be confirmed; report whether the corresponding new right-side image appeared. The installed EXE was not rebuilt, so old installers do not include these changes.
 
-`WECHAT_SEND_UNCONFIRMED` 在项目界面显示黄色“图片发送结果待核对”，原始错误代码和原因保留在“查看原因”中。
-待核对时保留图片，并禁用直接重发和替换图片。用户点击“已在微信确认发送”后，仅清除本地预览并刷新原会话；不改写后端回执。
-若用户确认未发送，点击“已核对未发送，允许重试”只恢复发送按钮，不自动发送。
-切换会话后不能确认或解锁原会话图片；普通选图、文件、草稿等失败继续显示原始错误。
-相关前端测试 48 项通过，覆盖人工确认不重发、目标切换、失败保留图片及原有文字发送。
+### Handling an unconfirmed result
 
-## 项目软件首次试发后的修复
+`WECHAT_SEND_UNCONFIRMED` appears as the yellow **Image send result needs checking** state, retaining the original error code and reason under **View reason**. While checking is pending, the image is retained and direct resend/replacement are disabled. **Confirmed sent in WeChat** clears only the local preview and refreshes the original conversation; it does not rewrite the backend receipt.
 
-用户已在项目软件选中桌面 PNG，点击发送后遇到 `WECHAT_IMAGE_DIALOG_NOT_FOUND`，
-此时微信文件选择框已出现，但尚未填入文件名。重新检查确认控件类型和编号匹配现有实现。
-原实现只等待顶层对话框出现，随后立即检查内部控件，会将尚未初始化完成误报为控件缺失。
-已改为在原有发送超时内等待文件名框与打开按钮可用，保持窗口归属检查及单次点击。
-两个延迟加载回归场景和既有 Qt 测试共 38 项通过；实际项目适配器也已到达可填写文件名的步骤，
-验证在填写前主动停止并取消对话框，未发送。完整桌面程序的再次发送由用户验证。
+If the user confirms it was not sent, **Checked not sent; allow retry** only restores the send button without sending automatically. After conversation switching, the original conversation's image cannot be confirmed or unlocked. Ordinary image-selection, file, draft, and other failures still show their original errors. All 48 relevant frontend tests passed, covering manual confirmation without resend, target changes, failure retention, and existing text sending.
+
+## Fix after the first send attempt in the project application
+
+The user selected a desktop PNG in the project application and received `WECHAT_IMAGE_DIALOG_NOT_FOUND` after clicking send. WeChat's file dialog had appeared, but its filename had not been entered. Reinspection confirmed that the control types and IDs matched the existing implementation.
+
+The original code waited only for the top-level dialog, then inspected its children immediately, misclassifying incomplete initialization as missing controls. It now waits for the filename field and open button within the existing send timeout, retaining owner checks and single-click behavior. The two delayed-loading regressions and existing Qt tests totaled 38 passing tests. The real project adapter also reached the filename-entry stage; verification deliberately stopped before entering it and cancelled the dialog without sending. The user verifies the next send from the complete desktop application.

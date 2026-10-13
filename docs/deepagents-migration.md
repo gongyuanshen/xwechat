@@ -1,122 +1,122 @@
-# 微信助手 DeepAgents v3
+# WeChat Assistant DeepAgents v3
 
-本说明取代旧版三阶段执行流程。依赖固定为 `deepagents==0.7.13`，由 `uv.lock` 锁定传递依赖。验收记录见 [迁移验收](deepagents-acceptance.md)。
+This document supersedes the previous three-stage execution flow. The dependency is pinned to `deepagents==0.7.13`, with transitive dependencies locked by `uv.lock`. Acceptance records are in the historical migration acceptance document, which is not distributed with the public source.
 
-## 执行路径
+## Execution Path
 
 ```mermaid
 flowchart TD
-    UI[聊天界面与 REST] --> Service[任务服务：幂等、版本、取消、历史]
-    Service --> Graph[官方 create_deep_agent]
+    UI[Chat UI and REST] --> Service[Task service: idempotency, versions, cancellation, history]
+    Service --> Graph[Official create_deep_agent]
     Graph --> Model[DeepChatModel]
-    Model --> Queue[全应用共享调度与请求审计]
-    Queue --> Provider[已配置供应商客户端]
-    Graph --> Tools[标准微信工具与服务端范围句柄]
-    Graph --> Children[范围分析员与事实核查员]
-    Graph --> Context[官方摘要中间件与虚拟数据库后端]
-    Tools --> Data[原消息读取、搜索、统计、附件解析]
+    Model --> Queue[Application-wide shared scheduling and request auditing]
+    Queue --> Provider[Configured provider client]
+    Graph --> Tools[Standard WeChat tools and server-side scope handles]
+    Graph --> Children[Scope analyst and fact checker]
+    Graph --> Context[Official summarization middleware and virtual database backend]
+    Tools --> Data[Original-message reads, search, statistics, attachment parsing]
     Children --> Tools
-    Graph --> Events[持久化事件与兼容投影]
-    Events --> SSE[SSE 与界面]
+    Graph --> Events[Persistent events and compatibility projections]
+    Events --> SSE[SSE and UI]
 ```
 
-`AgentService` 保留 HTTP 层所需的任务生命周期，生产运行继承 `DeepAgentRuntime`，不再运行旧的 `parse_context → 决策 → answer` 循环。旧报告主循环和旧子任务执行器不再进入生产调用链。复用的分页、日期、原文、统计和来源函数仍是独立数据能力。
+`AgentService` retains the task lifecycle needed by the HTTP layer. Production execution inherits `DeepAgentRuntime` and no longer runs the old `parse_context → decision → answer` loop. The old report main loop and subtask executor are no longer in the production call chain. Reused pagination, date, original-message, statistics, and source functions remain independent data capabilities.
 
-问候和能力询问在同一次主模型请求直接生成正文，没有模型路由器或问候白名单。初始工具只提供范围选择和内部笔记写入；有内部资料后提供回查工具，已有笔记可直接修改，不必先查询聊天。已选范围后再提供查询、统计、分析等工具。模型可以直接回答，不强制调用工具。
+Greetings and capability questions produce the body directly in the same main-model request, without a model router or greeting allowlist. Initial tools provide only scope selection and internal-note writing. Lookup tools become available once internal material exists; existing notes can be edited directly without querying chats first. Query, statistics, and analysis tools become available after scope selection. The model may answer directly without a mandatory tool call.
 
-消息提交只校验账号归属、读取本地模型配置、落库并启动任务。会话目录、人物目录和索引在查询工具真正执行时才使用。模型能力通过本地缓存读取，远程目录刷新不阻塞提交。完整会话 ID 列表只保存在服务端状态中，模型收到数量、有限候选名和范围句柄。
+Message submission only validates account ownership, reads local model configuration, persists the task, and starts execution. Conversation and person directories and indexes are used only when query tools actually execute. Model capabilities are read from the local cache; remote catalog refresh does not block submission. Complete conversation ID lists remain in server state; the model receives counts, a limited set of candidate names, and a scope handle.
 
-## 模块职责
+## Module Responsibilities
 
-| 模块 | 职责 |
+| Module | Responsibility |
 | --- | --- |
-| `deep_runtime.py` | 官方图构建、公开中间件、子图委派、版本与恢复、正文投影和最终校验 |
-| `deep_model.py` | 原生工具与 JSON 协议适配，模型请求调度、计量、超时和兼容缓存 |
-| `reasoning_client.py` | 官方 SDK 的扩展字段透传，保留 MiMo 原生多轮工具消息所需的 `reasoning_content` |
-| `deep_tools.py` | 查询范围、读取游标、已提交页面、检索、精确统计和原文回查 |
-| `deep_backend.py` | 账号、运行、输入版本隔离的数据库虚拟文件后端 |
-| `deep_context.py` | 官方摘要的触发、历史持久化核验和失败保留 |
-| `deep_validation.py` | 日期、文件声明、来源归属及完整报告的独立证据核验 |
-| `deep_projection.py` / `deep_subtasks.py` | 现有答案、来源、资料分页和子任务字段的兼容投影 |
+| `deep_runtime.py` | Official graph construction, public middleware, subgraph delegation, versioning and resumption, body projection, and final validation |
+| `deep_model.py` | Native tool and JSON protocol adaptation; model request scheduling, metering, timeouts, and compatibility cache |
+| `reasoning_client.py` | Passes extension fields through the official SDK, retaining `reasoning_content` required by MiMo native multi-turn tool messages |
+| `deep_tools.py` | Query scopes, read cursors, committed pages, retrieval, exact statistics, and original-source lookup |
+| `deep_backend.py` | Database virtual-file backend isolated by account, run, and input version |
+| `deep_context.py` | Official summarization triggers, history persistence verification, and preservation on failure |
+| `deep_validation.py` | Independent evidence validation for dates, file claims, source ownership, and complete reports |
+| `deep_projection.py` / `deep_subtasks.py` | Compatibility projections for existing answers, sources, material pagination, and subtask fields |
 
-## 数据范围与完整性
+## Data Scope and Integrity
 
-- `account`、运行 ID 和输入版本由服务端注入。工具参数没有可用于改变账号的字段。
-- `scope_handle` 绑定当前运行与版本；过期、跨运行或跨账号的句柄不能读取资料。
-- 使用固定截止时间、固定时区与左闭右开区间。用户明确写出的时刻优先于模型的换算值。最近 N 条是用户明确指定的总量，不是分页大小。
-- 查询时匹配明确点名的会话，防止参数失败后扩大到全部聊天。重名返回澄清候选。完整读取不能只覆盖点名对象中的一部分。
-- 普通搜索保存实际命中和来源，实时缺口使用独立游标回查，不把搜索完成当成分析完成。
-- 完整范围的每一页先保存原文，再提交带来源的发现和覆盖区间；即使无相关发现也必须提交。失败重放返回尚未提交的同一页。
-- 来源按真实消息身份去重。同秒消息依靠稳定游标和消息身份，长消息的字符偏移随页面保存。覆盖显示按会话合并，避免重复范围造成数量翻倍。
-- 精确统计由程序计算；日分布和发言人分布分页读取计算结果。读取存在缺口或警告时不能宣称完整。
+- `account`, run ID, and input version are injected by the server. Tool arguments contain no field that can change the account.
+- `scope_handle` binds to the current run and version; expired, cross-run, or cross-account handles cannot read material.
+- Reads use a fixed cutoff time, fixed time zone, and half-open intervals. Explicit user times take precedence over model conversions. The latest N messages means the total explicitly requested by the user, not a page size.
+- Queries match explicitly named conversations to prevent expansion to all chats after argument failure. Duplicate names return clarification candidates. A complete read cannot cover only a subset of the named subjects.
+- Ordinary search saves actual hits and sources. Gaps in live data use a separate cursor for lookup; search completion is not analysis completion.
+- Every page of a complete scope first saves original text, then commits findings with sources and coverage intervals. Submission is required even when there are no relevant findings. Failure replay returns the same uncommitted page.
+- Sources are deduplicated by actual message identity. Messages within the same second use stable cursors and message identities; character offsets for long messages are saved with their pages. Coverage display merges by conversation so overlapping ranges do not double counts.
+- Exact statistics are computed by the program; daily and speaker distributions paginate over computed results. A read with gaps or warnings cannot be claimed as complete.
 
-批次笔记的 `batch_index` 保留查询范围内的序号。文件名为 `/notes/batch_<序号>_<页面身份>.json`，页面身份由任务 ID、输入版本和页面 ID 计算，避免不同范围、子任务或继承历史占用同一个文件。子任务重复归并复用该路径；归并和提交使用同一存储锁。子任务的聚合、接力与普通笔记存入 `/notes/subtasks/<子任务版本身份>/`，不计入父任务原始批次。
+Batch notes retain the sequence within the query scope in `batch_index`. Filenames are `/notes/batch_<index>_<page-identity>.json`; page identity is computed from task ID, input version, and page ID to prevent different scopes, subtasks, or inherited history from occupying the same file. Repeated subtask merges reuse this path, and merging and committing use the same storage lock. Subtask aggregates, relay results, and ordinary notes are stored in `/notes/subtasks/<subtask-version-identity>/` and do not count as original parent-task batches.
 
-批次汇聚、恢复和页面统计复用同一持久化读取入口，按提交时间排列，并保留旧数字文件名及裸字典记录的读取支持。缺失必要字段、错误字段类型或损坏 JSON 抛出 `StageNoteCorruptedError`，只包含笔记、任务、版本及错误字段定位，不包含聊天正文。恢复仅统计当前版本的 `batch_*.json`，不重复计算接力摘要；旧版 `stage_note` 展示仍校验其已知格式。此修复不自动重建历史上已被覆盖的笔记。
+Batch aggregation, resumption, and page statistics reuse the same persistent read entry point, ordered by commit time, with continued read support for old numeric filenames and bare-dictionary records. Missing required fields, incorrect field types, or corrupted JSON raise `StageNoteCorruptedError`, containing only note, task, version, and faulty-field locations, without chat bodies. Resumption counts only the current version's `batch_*.json`, without recounting relay summaries; display of old `stage_note` records still validates their known format. This fix does not automatically reconstruct historically overwritten notes.
 
-汇聚先执行确定性事实去重并只保留被事实引用的原文映射，再以汇聚结果判断是否超过 48 KiB 安全窗口；批次原文仍完整保存在原文件中。必要的接力请求也只携带引用映射。接力事实校验正文、来源及引文后，以事实内容、引用映射和压缩提示的指纹写入 `relay_reduction`，同一任务版本的恢复与并发调用复用结果；当前消息数、来源覆盖及批次编号重新计算，不把旧统计当成新范围。损坏缓存明确报错，不重新调用模型掩盖错误。同一任务版本的汇聚串行执行，进入锁后读取当前批次，防止旧结果覆盖新结果。汇聚的批次数始终代表原始批次，不用接力组数代替。
+Aggregation first performs deterministic fact deduplication and retains only original-source mappings referenced by facts, then checks whether the aggregate exceeds the 48 KiB safe window. Full batch originals remain in their original files. Necessary relay requests also carry only referenced mappings. After relay facts pass body, source, and quotation validation, the result is saved as `relay_reduction` with a fingerprint of fact content, reference mappings, and the compaction prompt. Resumption and concurrent calls within the same task version reuse the result. Current message count, source coverage, and batch indices are recalculated rather than treating old statistics as a new scope. Corrupted caches raise explicit errors instead of hiding the problem with another model call. Aggregation is serialized within a task version and reads current batches after acquiring the lock, preventing stale results from overwriting newer ones. The aggregate batch count always represents original batches, not relay groups.
 
-父任务的完整内容范围与必要分支完成后，在主模型下一次调用前统一刷新 `/notes/aggregated.json`。服务端读取完整虚拟文件，不受模型文件工具每次 2000 行的分页限制。事实全文作为资料消息进入既有上下文计量和压缩流程；系统提示仅携带路径与统计。仍在有效上下文中的同一语义快照不重复注入；变化后的快照或已经归档的快照追加新消息，避免事实被已压缩的旧位置遮住。主模型按本轮用户要求和指定格式直接统稿，不固定四章结构，也不追加独立报告生成或回答后的核查调用。普通问答、纯统计和子任务沿用原完成入口；关闭并行计划仅提交整合结论，不再用线程桥接重复汇聚。
+After the parent task's complete content scope and required branches finish, `/notes/aggregated.json` is refreshed once before the main model's next call. The server reads the complete virtual file, without the model file tool's 2000-line pagination limit. Full fact text enters the existing context metering and compaction flow as a material message; the system prompt contains only the path and statistics. The same semantic snapshot is not injected again while it remains in valid context. Changed or already archived snapshots append a new message so facts are not hidden at an old compacted position. The main model directly composes the final response according to the current user requirements and requested format, without a fixed four-chapter structure, an independent report-generation call, or a post-answer verification call. Ordinary Q&A, pure statistics, and subtasks retain the existing completion entry point; closing a parallel plan submits only the integrated conclusion and no longer repeats aggregation through a thread bridge.
 
-范围分析员和事实核查员由官方 `task` 子图入口执行。服务端将范围绑定到子运行，范围分析员不能缩小或扩大分配范围，不能更换受限发言人；子任务不能递归委派。超过 60 天的范围按 30 天分片。已完成的子任务按确定性身份复用，父任务汇总时不重复计算用量或原文。
+Scope analysts and fact checkers execute through the official `task` subgraph entry point. The server binds the scope to the child run; scope analysts cannot narrow or expand assigned scopes or change a restricted speaker. Subtasks cannot delegate recursively. Scopes exceeding 60 days are split into 30-day slices. Completed subtasks are reused by deterministic identity, without recounting usage or original messages during parent aggregation.
 
-## 模型与上下文
+## Models and Context
 
-原生模式使用自动工具选择，正文可流式输出。非原生模式只接受工具列表或包含完整正文的最终回答 JSON；适配器转换为标准 `AIMessage` 后继续由 DeepAgents 执行。JSON 正文校验完成后再展示，不额外请求一次正文。明确拒绝工具参数时才切换兼容模式，缓存按接口、模型和配置版本隔离。已确认支持 JSON mode 的接口启用该格式约束，仍进行本地结构检查。
+Native mode uses automatic tool selection and may stream the response body. Non-native mode accepts only a tool list or a final-answer JSON containing the complete body; the adapter converts it to a standard `AIMessage` before DeepAgents continues execution. The JSON body is shown after validation, without another body request. Compatibility mode is selected only when tool arguments are explicitly rejected, and its cache is isolated by endpoint, model, and configuration version. Endpoints confirmed to support JSON mode enable that format constraint while retaining local structure checks.
 
-参数纠正、兼容重试、附件解析、摘要、子任务和证据核查均进入同一调度和审计。全应用模型并发上限为四，前台请求优先，遇到限流退让。排队取消或本地适配初始化失败不记成已经发出的模型请求；上游未返回用量的请求明确记录未知。
+Argument corrections, compatibility retries, attachment parsing, summarization, subtasks, and evidence checks use the same scheduling and audit. Application-wide model concurrency is capped at four, with foreground requests prioritized and backoff on rate limits. Queue cancellation or local adapter-initialization failure is not counted as a sent model request; requests without returned upstream usage are explicitly recorded as unknown.
 
-MiMo 的扩展字段通过官方 OpenAI SDK 完整透传，不把思考字段显示在正文。已确认的供应商输出上限用于预算；显式模型配置和思考等级仍优先。参考 [MiMo 多轮工具调用要求](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/deep-thinking)、[模型长度上限](https://mimo.mi.com/docs/en-US/quick-start/summary/model)及 [JSON mode](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/structured-output)。
+MiMo extension fields pass through the official OpenAI SDK intact, while thinking fields stay out of the displayed body. Confirmed provider output limits inform budgets; explicit model settings and thinking levels remain authoritative. See [MiMo multi-turn tool requirements](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/deep-thinking), [model length limits](https://mimo.mi.com/docs/en-US/quick-start/summary/model), and [JSON mode](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/structured-output).
 
-上下文由官方摘要中间件触发，`DurableSummarization` 负责持久化核验、分段摘要和超限恢复。默认阈值为可用输入预算的 80%，目标保留约 10% 的近期消息，正常摘要请求上限为 55%。这里的预算采用 UTF-8 字节保守估算，计入工具定义、工具参数和需要回传的思考字段，不等于供应商实际 Token 用量；主请求的用量校准不改变此摘要计数口径。
+Context is triggered by the official summarization middleware. `DurableSummarization` handles persistence verification, segmented summarization, and over-limit recovery. The default threshold is 80% of the available input budget, targeting retention of approximately 10% of recent messages; normal summary requests are limited to 55%. These budgets use conservative UTF-8 byte estimates and include tool definitions, tool arguments, and thinking fields that must be returned. They are not actual provider Token usage; main-request usage calibration does not change this summarization measurement.
 
-待压缩历史按时间顺序全部进入分段摘要，不再使用要求从用户消息开始的尾部裁剪。单条超长消息也按 Unicode 字符边界分段。每一段的完整请求计入提示词、累计摘要和消息封装；模型合并上一段摘要与本段资料，生成新的累计摘要。摘要目标上限为本次摘要请求预算的 20%，最多 8192 UTF-8 字节；空摘要、过长摘要及框架占位内容最多尝试三次，失败保留原检查点。这是语义摘要，不保证逐字保留，完整原文仍通过归档路径回查。
+All history awaiting compaction enters segmented summarization chronologically, replacing tail trimming that required a user-message starting point. A single oversized message is also split at Unicode character boundaries. Each segment's full request includes the prompt, cumulative summary, and message wrappers. The model merges the previous summary with the current segment to produce a new cumulative summary. The summary target limit is 20% of the current summary-request budget, up to 8192 UTF-8 bytes. Empty summaries, oversized summaries, and framework placeholders are attempted at most three times; failure preserves the original checkpoint. This is semantic summarization without guaranteed verbatim retention; complete originals remain accessible through archive paths.
 
-未到阈值但本地检查或供应商报告上下文超限时，框架立即压缩后重试。主动压缩后主请求仍超限，则额外恢复最多两次，每次将近期保留量及摘要请求预算缩小一半（摘要请求预算最低 1024）。摘要请求自身超限时缩小片段，未成功的片段不推进游标；固定提示内容也放不下时停止，避免无限重试。同时超过近期保留量与摘要请求预算的已完成工具批次可整组归档摘要，保持工具调用与结果配对。历史归档在压缩后的主模型调用之前核验；归档或摘要失败不提交压缩结果。整个流程继续使用同一模型调度和用量审计，摘要正文不进入公开回答。
+If a local check or provider reports a context overflow below the threshold, the framework immediately compacts and retries. If the main request still overflows after proactive compaction, at most two additional recovery attempts halve recent-message retention and the summary-request budget each time (minimum summary-request budget: 1024). If a summary request itself overflows, its segment shrinks without advancing the cursor of the unsuccessful segment. If even fixed prompt content cannot fit, execution stops to avoid infinite retries. Completed tool batches exceeding both the recent-retention amount and summary-request budget may be archived and summarized as complete groups, preserving tool-call/result pairing. History archives are verified before the compacted main-model call; archive or summary failure does not commit compaction. The whole flow retains the same model scheduling and usage audit, and summary bodies do not enter the public answer.
 
-生产入口的 `SawtoothSummarization` 在紧急超限时不保留近期尾部，从最后一个完整工具交互边界归档；未完成的工具调用与结果仍整组保留。不能先减去最后一条消息，再把刚读取的大批聊天原样留在超限请求里。摘要的 Markdown 包装与路径自身字符分别校验，失败记录保留具体的本地校验说明，前端展开失败条目可查看；日志只记录脱敏错误分类和栈位置。普通摘要服务异常仍保留任务继续能力。
+The production `SawtoothSummarization` entry point retains no recent tail during emergency overflow and archives from the last complete tool-interaction boundary; unfinished tool calls and results remain together. It must not first subtract the final message while leaving the newly read large chat batch unchanged in an oversized request. Summary Markdown wrappers and path characters are validated separately. Failure records retain specific local validation explanations, available by expanding the failed frontend entry; logs retain only redacted error categories and stack locations. Ordinary summary-service exceptions still preserve the ability to continue the task.
 
-虚拟文件后端不连接宿主文件系统。模型只能修改 `/notes/`、`/plans/`、`/drafts/`；原文和应用说明只读。框架产生的历史与大结果由服务端存入内部区域。资料与子任务中的指令不能改变这些边界，没有终端、联网搜索或发送微信的工具。
+The virtual-file backend does not connect to the host filesystem. The model can modify only `/notes/`, `/plans/`, and `/drafts/`; original messages and application instructions are read-only. Framework history and large results are stored in internal areas by the server. Instructions in material or subtasks cannot change these boundaries. No terminal, internet-search, or WeChat-send tools exist.
 
-同一 AI 对话的新轮次桥接近期对话、可回查来源和内部笔记。带引用笔记先核验编号和归属；笔记仍不是原始证据，也不是新用户指令。其他 AI 对话不继承这些资料。
+New turns within the same AI conversation bridge recent conversation, retrievable sources, and internal notes. Notes with citations first validate identifiers and ownership; notes are neither original evidence nor new user instructions. Other AI conversations do not inherit this material.
 
-## 完成、停止与恢复
+## Completion, Stopping, and Resumption
 
-新任务写入 `engine=deepagents`、`engine_version=3`。检查点位于独立的 `deepagents_checkpoints.sqlite3`，新运行的命名空间包含账号、AI 对话、运行和输入版本。早期隔离验收的 v3 命名空间保留兼容读取，不与旧引擎检查点混用。
+New tasks store `engine=deepagents` and `engine_version=3`. Checkpoints reside in the separate `deepagents_checkpoints.sqlite3`; new-run namespaces include account, AI conversation, run, and input version. v3 namespaces from early isolated acceptance retain compatible reads and are not mixed with old-engine checkpoints.
 
-停止保留原文、待提交页面、发现和子任务成果。恢复使用新检查点；如果图已保存最终回答但应用尚未提交完成状态，直接交付已保存的正文。旧版本已保存的草稿仍优先恢复，不被图中早先的正文覆盖。运行中补充要求先增加版本并取消旧工作，再以新版本继续；过期结果不可提交。
+Stopping preserves original messages, pending pages, findings, and subtask results. Resumption uses the new checkpoints. If the graph has saved a final answer but the application has not committed completion, it delivers the saved body directly. Drafts saved by older versions still take priority on resumption and are not overwritten by earlier graph bodies. Requirements added during execution first increment the version and cancel old work, then continue under the new version; stale results cannot commit.
 
-正文生成后直接保存回答并结束任务，不再执行独立的引用核查、证据复核、遗漏核查或自动修正，也不为这些步骤追加模型调用。普通问答、完整报告和子任务均使用这一完成流程。
+After body generation, the answer is saved and the task ends directly. Independent citation checks, evidence reviews, omission checks, and automatic corrections no longer run afterward, and no model calls are added for them. Ordinary Q&A, complete reports, and subtasks all use this completion flow.
 
-读取范围、分页提交和数据源缺口仍按工具返回的程序状态记录；完整范围尚未处理完时保留阶段结果。回答后的核查不再作为完成状态的前置条件。
+Read scopes, page commits, and data-source gaps remain recorded using program states returned by tools. Stage results are retained while complete scopes remain unfinished. Post-answer checking is no longer a prerequisite for completion.
 
-## 历史迁移与接口
+## Historical Migration and Interfaces
 
-首次启动切换前通过 SQLite backup API 写入 `before-deepagents-v3.sqlite3`，再记录迁移标记。旧答案、来源、用量和原始任务状态保留可读。旧未完成任务不能继续执行旧检查点，也不会自动产生模型费用。
+Before the first startup switches engines, the SQLite backup API writes `before-deepagents-v3.sqlite3`, then records a migration marker. Old answers, sources, usage, and original task states remain readable. Old unfinished tasks cannot continue from old checkpoints and do not automatically incur model costs.
 
-保留 `/api/ai/agent` 现有对话、消息、运行、资料和 SSE 接口。新增：
+Existing `/api/ai/agent` conversation, message, run, material, and SSE interfaces remain. Additions:
 
-- 运行字段：`engine`、`engine_version`、`can_resume`、`restart_required`、`restarted_from`。
-- 覆盖状态：`not_applicable`、`partial`、`complete`、`unknown`。
-- `POST /runs/{id}/restart`：请求体带 `request_id`，幂等创建新引擎运行，并关联旧运行。
-- 对旧引擎运行调用 `continue` 返回明确的迁移错误和重新运行入口。
+- Run fields: `engine`, `engine_version`, `can_resume`, `restart_required`, `restarted_from`.
+- Coverage states: `not_applicable`, `partial`, `complete`, `unknown`.
+- `POST /runs/{id}/restart`: body contains `request_id`; idempotently creates a new-engine run linked to the old run.
+- Calling `continue` on an old-engine run returns an explicit migration error and an entry point to restart.
 
-删除 AI 对话或清理账号时，同时清理原文、内部文件、子任务关联和新检查点。生产运行没有自动回退旧引擎的路径。若回滚应用版本，必须先停止任务、另存迁移后的数据库副本，再恢复与旧版本匹配的备份，不能把新图检查点交给旧代码。
+Deleting an AI conversation or purging an account also removes original material, internal files, subtask associations, and new checkpoints. Production execution has no automatic fallback to the old engine. To roll back the application version, first stop tasks, save another copy of the migrated database, then restore a backup matching the old version; new graph checkpoints cannot be given to old code.
 
-## 界面与构建
+## UI and Builds
 
-时间线来自实际模型、工具和子任务事件，不预绘固定三阶段。只有主 Agent 面向用户的正文进入回答区域，内部摘要和核查过程不会混入。无数据查询的对话不显示会话数量、索引提示、覆盖警告或空出处入口。
+The timeline comes from actual model, tool, and subtask events, without a predefined three-stage sequence. Only the main Agent's user-facing body enters the answer area; internal summaries and verification work are excluded. Conversations without data queries do not show conversation counts, index hints, coverage warnings, or empty source entries.
 
-执行入口使用官方 `astream_events(version="v3")` 事件流，按消息身份与所属任务接收正常回复正文；只读取 `text-delta`，不展示推理或工具参数。工具定义和执行路径均已移除 `progress_message`。模型与工具调用一起返回的公开正文保存为阶段汇报，最终无工具调用的回答独立保留；JSON 兼容模式将协议中的正文转换回标准 `AIMessage.content`，不新增业务工具参数。
+Execution uses the official `astream_events(version="v3")` stream, receiving normal reply bodies according to message identity and task ownership. It reads only `text-delta` and does not display reasoning or tool arguments. `progress_message` has been removed from tool definitions and execution paths. Public bodies returned alongside model tool calls are saved as stage reports, with the final answer containing no tool calls retained separately. JSON compatibility mode converts the protocol body back to standard `AIMessage.content` without adding business tool arguments.
 
-阶段汇报侧重已经完成的工作、已有发现及仍未确定的事项，可以在一组操作后产生，不要求逐次预告工具或下一步计划。提示词将其明确为长任务的正常沟通要求：首次取得有用资料且仍需继续分析时分享收获，后续出现关键发现、判断变化或影响结果的阻碍时再汇报；尚未取得资料时无需开场预告，简单任务或即将完成时直接回答。没有按时间、消息数量或轮次强制回复的程序规则，缺少阶段文字不会阻断或触发重试。公开汇报按应用的 `progress` 时间线事件及时保存、推送，按实际顺序与操作记录穿插，以普通段落展示，支持 Markdown 和已有引用。最终正文单独显示，不覆盖此前汇报。只展示模型实际产生的公开回复，不编造阶段文字，也不为进度额外调用模型。
+Stage reports focus on completed work, existing findings, and remaining uncertainties. They can follow a group of operations without announcing each tool or next-step plan. Prompts define them as normal communication during long tasks: share findings after first obtaining useful material if analysis must continue, then report key findings, changed judgments, or obstacles affecting the result. No opening announcement is needed before material is obtained; simple or nearly complete tasks answer directly. There is no program rule forcing replies by elapsed time, message count, or turns, and missing stage text does not block execution or trigger a retry. Public reports are promptly saved and pushed as application `progress` timeline events, interleaved with operation records in actual order and displayed as ordinary paragraphs with Markdown and existing citations. The final body is separate and does not overwrite earlier reports. Only actual public model replies are shown; stage text is not invented and progress does not cause extra model calls.
 
-含阶段性回复的过程在完成后默认保留可见，用户可以一键收起；显式展开或收起的选择在进度刷新和重新挂载后保留。没有阶段性回复的已完成历史沿用原有折叠行为。
+Processes containing stage replies remain visible by default after completion, with a one-click collapse option. Explicit expansion/collapse choices survive progress refreshes and remounting. Completed history without stage replies retains its previous collapse behavior.
 
-官方依据：[Deep Agents Streaming](https://docs.langchain.com/oss/python/deepagents/streaming) 区分模型消息、步骤更新和自定义事件；[Event streaming](https://docs.langchain.com/oss/python/deepagents/event-streaming) 推荐 v3，并说明需要精确到达顺序时可消费原始协议事件。本项目在主任务及拥有独立持久化检查点的子任务中统一使用 v3，再按各自任务身份写入现有时间线。这些接口传递已经产生的内容，并非自动生成自然语言阶段总结的功能。
+Official basis: [Deep Agents Streaming](https://docs.langchain.com/oss/python/deepagents/streaming) distinguishes model messages, step updates, and custom events; [Event streaming](https://docs.langchain.com/oss/python/deepagents/event-streaming) recommends v3 and explains that raw protocol events can be consumed when exact arrival order matters. This project uses v3 consistently for main tasks and subtasks with independent persistent checkpoints, writing events to the existing timeline under each task's identity. These interfaces transport already generated content; they do not automatically generate natural-language stage summaries.
 
-SSE 使用持久化事件 ID、记录 ID 和修订号支持断线重连；正文增量直接投影，正文生成结束后保存答案并发布完成状态。保留来源定位、人物胶囊、复制、滚动和模型选择交互。
+SSE supports reconnection with persistent event IDs, record IDs, and revisions. Body deltas are projected directly; after body generation, the answer is saved and completion is published. Source navigation, person capsules, copy, scrolling, and model selection interactions are retained.
 
-`.github/workflows/ai-cross-platform.yml` 保留 AI、检索、前端及桌面通知和启动的源码检查。安装包与免安装压缩包已暂停后续发行，冻结 AI 程序的打包脚本及专用测试已移除；此前冻结环境的验收属于历史记录，不代表当前发行能力。
+`.github/workflows/ai-cross-platform.yml` retains source checks for AI, retrieval, frontend, desktop notifications, and startup. Further installer and portable-archive releases are paused; packaging scripts and dedicated tests for frozen AI applications have been removed. Previous frozen-environment acceptance is historical and does not represent current release capability.
 
-官方框架接口参考：[概览](https://docs.langchain.com/oss/python/deepagents/overview)、[后端](https://docs.langchain.com/oss/python/deepagents/backends)、[上下文](https://docs.langchain.com/oss/python/deepagents/context-engineering)、[子 Agent](https://docs.langchain.com/oss/python/deepagents/subagents)。没有修改依赖包源码。
+Official framework references: [Overview](https://docs.langchain.com/oss/python/deepagents/overview), [Backends](https://docs.langchain.com/oss/python/deepagents/backends), [Context](https://docs.langchain.com/oss/python/deepagents/context-engineering), and [Subagents](https://docs.langchain.com/oss/python/deepagents/subagents). Dependency package source has not been modified.

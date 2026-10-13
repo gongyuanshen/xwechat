@@ -1,82 +1,63 @@
-# Windows 微信 4.x 发送适配
+# Windows WeChat 4.x send adapter
 
-本次验证环境：Windows、微信（Weixin）4.1.15.13 中文界面。
+Verification environment: Windows, WeChat (Weixin) 4.1.15.13 with a Chinese interface.
 
-## 原因与实现
+## Cause and implementation
 
-微信主窗口类为 `Qt51514QWindowIcon`；Win32 子窗口枚举只提供渲染窗口，
-不提供单独的 Edit HWND。输入框实际由 UI Automation 暴露，
-AutomationId 为 `chat_input_field`，类型为 Edit。其 Name 会附加空白输入框的
-语音提示，不能用来判断会话身份；当前会话名称检查使用会话标题的精确名称。
+The WeChat main-window class is `Qt51514QWindowIcon`. Win32 child-window enumeration exposes only the rendering window, with no separate Edit HWND. UI Automation exposes the input field as an Edit control with AutomationId `chat_input_field`. Its Name includes a voice-input hint when empty, so that field cannot establish conversation identity; the adapter instead checks the conversation title's exact name.
 
-`WeChatBridge` 在公共的锁屏、进程、窗口、激活检查之后，按窗口类显式选择
-Qt 适配器 `WeChatQtUI`。原有非 Qt 路径保持不变，Qt 失败不会回退到盲发按键。
+After the shared lock-screen, process, window, and activation checks, `WeChatBridge` explicitly selects the Qt adapter `WeChatQtUI` by window class. The existing non-Qt path remains; Qt failure does not fall back to blind keystroke sending.
 
-Qt 流程：
+The Qt flow is:
 
-1. 使用搜索框 ValuePattern 写入目标名称，并回读验证。
-2. 只接受名称完全一致的本地会话搜索结果；同名结果（包括屏幕外结果）报错。
-3. 点击该结果控件的 UIA 坐标，核对会话标题精确匹配目标，并定位聊天面板中的固定输入控件。
-4. 检查现有草稿、设置焦点，通过 ValuePattern 写入正文，并逐字回读验证。
-5. 在 `chat_message_page` 内定位发送按钮，重新核对目标和正文后点击一次。
-6. 观察输入框清空及消息列表出现新的对应消息元素，才返回成功。
+1. Write the target name into the search field through ValuePattern and verify it by reading it back.
+2. Accept only local conversation search results whose names match exactly; duplicate names, including off-screen results, produce an error.
+3. Click the result control's UIA coordinates, verify that the conversation title exactly matches the target, and locate the fixed input control inside the chat panel.
+4. Check the existing draft, focus the input, write the body through ValuePattern, and read it back character for character.
+5. Locate the send button inside `chat_message_page`, recheck the target and body, and click once.
+6. Return success only after observing an empty input and a new matching message element in the message list.
 
-搜索结果和发送按钮的 Invoke 在本机均曾返回成功但未执行动作，因此两者均
-通过 UIA 定位后点击控件坐标，随后核实界面结果。这是明确的适配方式，不是
-Invoke 失败后的重发兜底。消息正文通过 ValuePattern 写入，不使用全局
-Ctrl+V / Alt+S，也不改变剪贴板。
+On this machine, Invoke on both search results and the send button had returned success without performing the action. Both controls are therefore located through UIA and clicked at their coordinates, followed by verification of the visible result. This is an explicit adaptation strategy, rather than a resend fallback after Invoke failure. ValuePattern writes the message body; the adapter neither uses global Ctrl+V / Alt+S nor changes the clipboard.
 
-发送按钮与输入框共同属于 `chat_message_page`；`content_view.bottom_ui_`
-是同级区域内的占位容器，不是发送按钮的祖先。测试树按照本机读取的该结构构造。
+The send button and input both belong to `chat_message_page`. `content_view.bottom_ui_` is a placeholder container in a sibling area, rather than an ancestor of the send button. The test tree follows this structure observed on the machine.
 
-界面转换期间，Qt 可能销毁正在枚举的控件。只对
-`UIA_E_ELEMENTNOTAVAILABLE (0x80040201)` 重新查询，并记录 Warning；
-受桥接的 `send_timeout_s`（默认 10 秒）限制。其余 COM 错误直接暴露。
-依据：[Microsoft UI Automation 错误码](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-error-codes)。
+Qt can destroy controls during enumeration while the interface changes. Only `UIA_E_ELEMENTNOTAVAILABLE (0x80040201)` triggers a fresh query, with a Warning recorded; this remains bounded by the bridge's `send_timeout_s` (default 10 seconds). Other COM errors surface directly. Reference: [Microsoft UI Automation error codes](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-error-codes).
 
-## 错误与结果语义
+## Errors and result semantics
 
-- `WECHAT_SESSION_AMBIGUOUS`：出现同名结果，不选择第一条发送。
-- `WECHAT_DRAFT_CONFLICT`：微信中已有不同的草稿，不覆盖或追加。
-- `WECHAT_INPUT_WRITE_FAILED`：文本接口不可写或回读不一致。
-- `WECHAT_SEND_UNCONFIRMED`：已尝试调用发送，但没有确认结果；保留项目草稿，
-  从不确定结果返回时重新开始现有的三秒防重复窗口，不自动重发。
-- `WECHAT_UIA_ERROR`：UIA 初始化或控件操作失败；后台保留完整异常链及阶段。
+- `WECHAT_SESSION_AMBIGUOUS`: duplicate-name results; the adapter does not select the first result and send.
+- `WECHAT_DRAFT_CONFLICT`: a different draft already exists in WeChat; it is neither overwritten nor appended to.
+- `WECHAT_INPUT_WRITE_FAILED`: the text interface is not writable, or readback differs.
+- `WECHAT_SEND_UNCONFIRMED`: sending was attempted but the result is unconfirmed; the project's draft is retained, and the existing three-second duplicate-prevention window restarts when this uncertain result returns. There is no automatic resend.
+- `WECHAT_UIA_ERROR`: UIA initialization or control operation failed; the backend retains the full exception chain and operation stage.
 
-成功仅表示本机微信客户端已处理提交并显示新消息，不是微信服务器的送达回执。
-当前 GUI 按展示名定位；不具备账号切换或按 wxid 唯一识别收件人的能力。
-自动回复默认关闭，启用时由用户确认数据账号与微信当前登录账号一致，明确选择窗口并授权回复范围。
-运行期间绑定进程 ID、进程启动时间和窗口句柄，按完整名称定位会话，以客户端显示证据确认本机提交。
-这些检查不能证明实时登录账号、收件人 ID 或新自身数据库消息身份；运行期间不得切换微信账号。
-同名结果、名称变化或不同草稿会暂停相应会话；提交结果未知时保留记录供人工核对，不自动重试或补发旧批次。
-应用重启后不会自动启用回复，需要重新确认窗口和账号；完整自动回复流程仍需单独进行真实模型和微信实机验收。
-不宣称支持所有微信版本、其他语言界面或屏幕阅读接口被禁用的环境。
+Success means only that the local WeChat client processed the submission and displayed a new message; it is not a WeChat server delivery receipt. The current GUI routes by display name and cannot switch accounts or uniquely identify recipients by wxid.
 
-## 使用与验证
+Automatic reply is off by default. Enabling it requires the user to confirm that the data account matches the currently logged-in WeChat account, explicitly select the window, and authorize the reply scope. During operation, it binds the process ID, process start time, and window handle, locates conversations by full name, and uses client-visible evidence to confirm local submission. These checks do not establish the live login account, recipient ID, or identity of a new self-sent database message; do not switch WeChat accounts while it runs.
 
-新增的 Windows 依赖 `uiautomation==2.0.29` 已写入 `pyproject.toml` 和 `uv.lock`，
-当前工作区 `.venv` 已安装。源码开发模式重启项目后使用本次代码；其他机器按
-仓库原有流程执行 `uv sync --no-editable`。安装包需要重新构建；Windows
-打包脚本已增加 UIA 依赖收集。
+Duplicate names, changed names, or different drafts pause the affected conversation. Unknown submission results retain records for manual checking, without automatic retries or resending old batches. Application restart does not automatically re-enable replies: the window and account require confirmation again. The complete automatic-reply flow still requires separate real-model and WeChat hardware acceptance. Support is not claimed for every WeChat version, other interface languages, or environments with screen-reader interfaces disabled.
 
-回归命令（项目根目录）：
+## Use and verification
+
+The added Windows dependency `uiautomation==2.0.29` is recorded in `pyproject.toml` and `uv.lock`, and installed in this workspace's `.venv`. Restart the source-development application to load this code; on other machines, run `uv sync --no-editable` using the repository's existing procedure. Installers require rebuilding; the Windows packaging script now collects the UIA dependency.
+
+Regression command, from the project root:
 
 ```powershell
 .venv\Scripts\python.exe -m pytest tests/test_wechat_qt_ui.py tests/test_wechat_ui_bridge.py tests/test_ui_bridge_adversarial.py tests/test_ui_bridge_challenger.py tests/test_chat_send_api.py tests/test_chat_send_adversarial.py -q -p no:cacheprovider
 ```
 
-本机无发送验证已完成：输入框识别、两个会话之间切换、文件传输助手中中文/换行/
-表情草稿写入与逐字回读、草稿恢复。独立 PyInstaller 最小程序已验证冻结环境中的
-UIA 初始化及真实输入框识别；这不等同于完整安装包验收。
+Local verification without sending covered input recognition, switching between two conversations, Chinese/newline/emoji draft writing and exact readback in File Transfer Assistant, and draft restoration. A standalone minimal PyInstaller executable verified UIA initialization and real input recognition in a frozen environment; this is not full installer acceptance.
 
-2026-09-30 验证记录：
+2026-09-30 verification record:
 
-- 相关后端回归测试 145 项通过，其中 Qt 适配测试 20 项；前端输入组件测试 29 项通过。
-- 经用户授权，真实代码已向文件传输助手发出一条测试消息，输入清空且出现新消息。
-- 此次实发暴露了空输入框 Name 附加语音提示造成的回执误判；已以回归测试复现并
-  修正。修正后的只读真机检查确认 `input_found=true`、`draft_empty=true`。
-- 用户额外授权后，09:58 通过真实 `WeChatBridge.send_message` 向文件传输助手发送
-  一条“发送回执验证 2026-09-30”，返回 `success=true`、`content_length=17`、
-  `duration_ms=900.24`，进程退出码为 0。
-- 实发前已有一条同文消息，实发后新增一条，输入框清空；即使输入框 Name 带语音
-  提示，最终代码仍正确确认成功。此次验证覆盖真实发送与本机回执，不代表服务器送达回执。
+- All 145 relevant backend regression tests passed, including 20 Qt adapter tests; 29 frontend input-component tests passed.
+- With user authorization, the real code sent one test message to File Transfer Assistant; the input cleared and a new message appeared.
+- That real send exposed a false receipt classification caused by the voice hint appended to the empty input's Name. A regression reproduced the issue, which was corrected. Subsequent read-only hardware inspection confirmed `input_found=true` and `draft_empty=true`.
+- With additional user authorization, real `WeChatBridge.send_message` sent one receipt-verification message to File Transfer Assistant at 09:58. Its exact Chinese body is represented by Unicode escapes below. The call returned `success=true`, `content_length=17`, `duration_ms=900.24`, and process exit code 0.
+
+  ```text
+  \u53d1\u9001\u56de\u6267\u9a8c\u8bc1 2026-09-30
+  ```
+
+- One identical message already existed before sending, and one new message appeared afterward with the input cleared. The final code correctly confirmed success despite the voice hint in the input's Name. This verified real sending and the local receipt, rather than a server delivery receipt.

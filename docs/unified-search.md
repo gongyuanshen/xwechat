@@ -1,90 +1,90 @@
-# 搜索：内容与附件
+# Search: Content and Attachments
 
-侧栏保留一个“搜索”入口。页面中的“全部内容”和“附件”共用账号、关键词和日期，切换时保留这些条件。
+The sidebar has a single "Search" entry. "All Content" and "Attachments" on the page share the account, keywords, and dates, preserving these criteria when switching views.
 
-- **全部内容**：同时查询聊天记录、附件正文、OCR 文字和资料夹内容；选择来源后点击“搜索”，各来源独立显示结果、覆盖、错误和续页。
-- **附件**：可以留空关键词浏览，提供名称／正文、类型、会话、发送者筛选。原附件中心的预览、下载、原消息、保存附件、提取正文、OCR、批量停止、查看／复制／导出全文和保存识别文字都在这里。
+- **All Content**: Queries chat records, attachment text, OCR text, and folder contents together. Select sources and click "Search"; each source independently displays results, coverage, errors, and pagination.
+- **Attachments**: Allows browsing with an empty keyword and offers name/body, type, conversation, and sender filters. The original attachment center's preview, download, original-message navigation, attachment saving, text extraction, OCR, batch stopping, full-text viewing/copying/export, and recognized-text saving are all available here.
 
-全部内容的附件正文／OCR 分组可点击“查看与处理附件”，直接进入带有相同查询条件的附件视图。提取完成后切回全部内容并重新搜索，即可查询新文字。切换视图时旧请求取消，旧结果清空；不会另外复制附件或 OCR 缓存。历史 `/attachments` 地址明确跳转到 `/search?view=attachments`。
+The attachment text/OCR groups in All Content offer "View and Process Attachments", which opens the attachment view with the same query criteria. After extraction finishes, switch back to All Content and search again to find the new text. Switching views cancels old requests and clears old results; it does not duplicate attachment or OCR caches. The historical `/attachments` address explicitly redirects to `/search?view=attachments`.
 
-两个视图的关键词均以空格分隔，最多 8 个词，全部命中才返回；匹配不区分大小写，编号、金额和标点仍按字面核对。附件选择“名称与已提取正文”时，不同词可以分别命中名称和正文。搜索使用已有本地内容，不调用模型，不自动提取或 OCR；识别操作需用户在附件视图主动执行。聊天页原有搜索和 Agent 检索继续保留。
+Keywords in both views are space-separated, with at most 8 terms, and all terms must match. Matching is case-insensitive; identifiers, amounts, and punctuation are still checked literally. When "Name and Extracted Text" is selected for attachments, different terms can match the name and body separately. Search uses existing local content, does not call models, and does not automatically extract text or run OCR. Users must explicitly start recognition in the attachment view. Existing search on the chat page and Agent retrieval remain available.
 
-## 全部内容的来源和覆盖
+## All Content Sources and Coverage
 
-| 来源 | 搜索内容 | 时间筛选 | 打开结果 |
+| Source | Searched content | Time filter | Open result |
 |---|---|---|---|
-| 聊天记录 | 本地消息索引中的正文、标题、链接、引用和金额 | 消息时间 | 定位原消息 |
-| 附件正文 | 已保存、来源校验有效的文档提取文字 | 所属消息时间 | 定位附件原消息 |
-| OCR 文字 | 已保存、来源校验有效的本地 OCR 文字 | 所属消息时间 | 定位图片或文件原消息 |
-| 资料夹内容与备注 | 当前资料的标题、正文、备注和标签，包括保存的报告及文字副本 | 资料更新时间 | 打开对应资料 |
+| Chat records | Bodies, titles, links, quotes, and amounts in the local message index | Message time | Locate the original message |
+| Attachment text | Saved document extraction text with valid source verification | Associated message time | Locate the attachment's original message |
+| OCR text | Saved local OCR text with valid source verification | Associated message time | Locate the image or file's original message |
+| Folder contents and notes | Titles, bodies, notes, and tags of current materials, including saved reports and text copies | Material update time | Open the corresponding material |
 
-- 日期包括所选结束日的全部时间，包括资料更新时间最后一秒的小数部分。
-- 聊天和附件排除隐藏会话及公众号。聊天索引保留的撤回存档显示撤回标识；附件文字不覆盖只有撤回存档的消息。
-- “范围内”表示当前账号、日期和来源范围的记录数；“可搜索内容”表示该来源有效、已有文字的记录数，不是关键词命中总数。页面仅显示已经加载的命中条数，不推算完整结果数量。
-- 附件的完整提取、部分提取、未提取到文字、尚未提取、来源已变化分别计数；文档提取和 OCR 是另一组方法统计，不能与状态统计相加。文档字层不表示其中的图片已经 OCR。
-- 未导入聊天库的恢复账号仍可搜索资料。其余来源显示不可用及未知覆盖，不能解释成零命中。
-- 这样的账号切到附件视图会明确显示聊天库不可用，不会改用其他聊天账号。已保存的附件副本继续从本地资料夹读取。
-- 聊天和附件来自本地消息索引快照。索引有更新待处理时明确提示；搜索片段没有重新核对原库，点击来源继续使用现有消息定位流程。普通文档历史缓存沿用既有签名兼容规则，OCR 必须绑定原消息及媒体身份。
-- 资料搜索当前版本，不把专题历史版本重复加入结果。原聊天不存在时，仍能打开保存的资料副本。
-- 来源已变化的缓存排除并计数；损坏缓存和数据库读取错误直接显示该来源的失败原因，可由用户单独重试，不作为成功空结果。
+- Dates include the entire selected end day, including fractional material-update timestamps in its final second.
+- Chats and attachments exclude hidden conversations and public accounts. Revocation archives retained by the chat index show a revocation marker; attachment text does not cover messages present only in revocation archives.
+- "In Scope" is the record count within the current account, dates, and source scope. "Searchable Content" is the count of valid records in that source with existing text, not the total keyword match count. The page shows only loaded matches and does not estimate the complete result count.
+- Complete extraction, partial extraction, no extracted text, not yet extracted, and changed sources are counted separately for attachments. Document extraction and OCR are a separate set of method counts and must not be added to status counts. A document text layer does not mean its images have undergone OCR.
+- Restored accounts without an imported chat database can still search materials. Other sources show unavailability and unknown coverage; this must not be interpreted as zero matches.
+- Switching such an account to the attachment view explicitly shows that the chat database is unavailable; another chat account is not substituted. Saved attachment copies remain readable from Local Folders.
+- Chats and attachments come from a local message-index snapshot. Pending index updates are explicitly indicated. Search snippets are not rechecked against the original database; clicking a source continues to use the existing message-location flow. Historical ordinary-document caches retain existing signature compatibility rules; OCR must be bound to the original message and media identity.
+- Material search covers current versions without duplicating historical topic versions in results. Saved material copies can still be opened when the original chat no longer exists.
+- Caches with changed sources are excluded and counted. Corrupted caches and database read errors directly display that source's failure reason and can be retried individually by the user; they are not treated as successful empty results.
 
-## 实现与生命周期
+## Implementation and Lifecycle
 
-全部内容接口为 `GET /api/search`，参数为 `account`、`q`、`source=chat|documents|ocr|notes`、`offset`、`limit`，以及可选的整数秒 `start_time`、`end_time`。开始秒包含，结束秒整秒包含；单页最多 100 条。附件视图复用 `/api/attachments` 及其原有文件、文字和提取接口，查询同样先做关键词精确过滤再分页。接口仅允许本机访问。
+All Content uses `GET /api/search` with `account`, `q`, `source=chat|documents|ocr|notes`, `offset`, and `limit`, plus optional integer-second `start_time` and `end_time`. The start second is inclusive, and the entire end second is inclusive. A page contains at most 100 items. The attachment view reuses `/api/attachments` and its existing file, text, and extraction endpoints; its queries likewise apply exact keyword filtering before pagination. Endpoints allow local-machine access only.
 
-账号、条件或恢复版本改变会取消旧请求并使旧结果失效。四组请求互不替代，单组续页失败保留之前的结果。查询词不加入导航地址、持久化存储或新增调试日志；服务沿用已有查询参数脱敏。
+Changes to the account, criteria, or restored version cancel old requests and invalidate old results. The four request groups do not substitute for one another; a pagination failure in one group retains its previous results. Query terms are not added to navigation URLs, persistent storage, or new debug logs; the service retains existing query-parameter redaction.
 
-复用消息 SQLite FTS、AIStore 附件缓存和资料记录，不增加向量库、索引依赖或跨请求结果缓存。聊天使用 FTS 候选，按时间排序后逐项字面复核，再按真实命中分页；纯符号查询明确采用字面扫描，不通过捕获失败切换算法。附件完整核对范围内的来源和提取元数据以获得真实覆盖数量。资料日期在 SQLite 读取时筛选。
+The implementation reuses message SQLite FTS, AIStore attachment caches, and material records without adding a vector database, index dependency, or cross-request result cache. Chat search uses FTS candidates, sorts by time, checks each literally, and paginates actual matches. Pure-symbol queries explicitly use a literal scan rather than switching algorithms after catching a failure. Attachment search fully checks in-scope sources and extraction metadata to obtain actual coverage counts. Material dates are filtered during SQLite reads.
 
-消息搜索持有现有账号和快照工作租约；资料搜索使用应用资料账号租约。恢复、删除账号、原消息导航及资料草稿确认继续复用既有流程。
+Message search holds existing account and snapshot work leases; material search uses the application-data account lease. Restoration, account deletion, original-message navigation, and material-draft confirmation continue to reuse existing flows.
 
-## 测量与验收
+## Measurements and Acceptance
 
-### 内容与附件合并验收（2026-10-13）
+### Content and Attachment Integration Acceptance (2026-10-13)
 
-- 前端 10 个相关文件 128 项通过，含 10 项真实组件／Pinia 整合测试和 46 项附件操作测试；后端附件、全文、文字资料、统一搜索/API 和附件索引来源 6 个相关文件 96 项通过，生产构建通过。
-- 生产页面连接真实本机搜索、附件和资料 HTTP 路由：单入口／单表单、共用条件、仅恢复资料账号限制、旧地址重定向均通过。
-- 合成附件的真实 TXT 下载、正文提取、全文读取，以及切回全部内容搜索新提取文字通过。来源与媒体路径使用可丢弃的合成夹具，未读取真实微信附件、执行 OCR／模型或做安装包验收。
-- 1440 与 480 宽度、两种主题、两种视图的检查无横向溢出或脚本错误，页面仅有一个资料滚动容器。私有记录：`.work/search-attachment-merge-20261013/`。
+- The frontend passed 128 checks across 10 related files, including 10 real component/Pinia integration tests and 46 attachment operation tests. The backend passed 96 checks across 6 related files covering attachments, full text, text materials, unified search/API, and attachment-index sources. The production build passed.
+- A production page connected to real local search, attachment, and material HTTP routes passed checks for a single entry/form, shared criteria, restrictions for accounts containing only restored materials, and old-address redirection.
+- Actual TXT download, text extraction, and full-text reads for synthetic attachments passed, as did switching back to All Content to search newly extracted text. Sources and media paths used disposable synthetic fixtures; no real WeChat attachments were read, no OCR/models were run, and no package acceptance was performed.
+- Checks at widths of 1440 and 480, with two themes and two views, found no horizontal overflow or script errors. The page had only one material scroll container. Private records: `.work/search-attachment-merge-20261013/`.
 
-### 初始统一检索测量
+### Initial Unified Retrieval Measurements
 
-可复现工具为 `tools/benchmark_unified_search.py`。使用固定合成数据，每个来源分别为 1,000 或 10,000 条；10,000 档包含 30,000 条索引消息、20,000 条提取缓存和 10,000 条当前资料。每来源 13 种查询，覆盖中文、大小写、编号、金额、多词、稀有词、零命中、符号、分页及时间范围。
+The reproducible tool is `tools/benchmark_unified_search.py`. It uses fixed synthetic data with 1,000 or 10,000 records per source. The 10,000 tier contains 30,000 indexed messages, 20,000 extraction caches, and 10,000 current materials. Each source has 13 queries covering Chinese text, letter case, identifiers, amounts, multiple terms, rare terms, zero matches, symbols, pagination, and time ranges.
 
-每场景预热一次、测量五次；p95 是这五个样本的最大值。工具核对固定命中身份、顺序、字段、分页和覆盖，并保存代码快照及摘要。测量不包含索引准备、HTTP、桌面渲染、模型、OCR 或真实微信操作，不应表述为所有场景的用户端提速。
+Each scenario has one warm-up and five measurements; p95 is the maximum of these five samples. The tool checks fixed match identities, ordering, fields, pagination, and coverage, and saves code snapshots and digests. Measurements exclude index preparation, HTTP, desktop rendering, models, OCR, and real WeChat operations, and must not be described as user-facing speedups in all scenarios.
 
-2026-10-13，在回归和构建结束后，用同一份 10,000 条／来源的 SQLite 数据交替串行复测关键场景，结果如下（毫秒）：
+On 2026-10-13, after regressions and builds finished, key scenarios were alternately retested in serial using the same SQLite data with 10,000 records per source. Results follow in milliseconds:
 
-| 场景 | 优化前 p50 / p95 | 优化后 p50 / p95 |
+| Scenario | Before optimization p50 / p95 | After optimization p50 / p95 |
 |---|---:|---:|
-| 聊天常见词首页 | 59.92 / 60.57 | 20.47 / 20.92 |
-| 聊天深页 | 85.92 / 92.52 | 79.56 / 80.42 |
-| 聊天零命中 | 1.08 / 1.22 | 1.08 / 1.13 |
-| 资料日期范围 | 65.99 / 72.69 | 27.48 / 27.52 |
-| 资料不限日期 | 80.00 / 85.03 | 77.90 / 79.75 |
-| 附件正文常见词 | 460.13 / 466.72 | 455.71 / 462.73 |
-| OCR 常见词 | 459.26 / 463.18 | 460.45 / 479.30 |
+| Chat common term, first page | 59.92 / 60.57 | 20.47 / 20.92 |
+| Chat deep page | 85.92 / 92.52 | 79.56 / 80.42 |
+| Chat zero matches | 1.08 / 1.22 | 1.08 / 1.13 |
+| Materials with date range | 65.99 / 72.69 | 27.48 / 27.52 |
+| Materials without date limits | 80.00 / 85.03 | 77.90 / 79.75 |
+| Attachment text, common term | 460.13 / 466.72 | 455.71 / 462.73 |
+| OCR common term | 459.26 / 463.18 | 460.45 / 479.30 |
 
-聊天改善来自精确匹配后完成当前页即停止不必要的正文解码，资料日期查询改善来自读取前的日期筛选。不限日期资料、附件正文和 OCR 没有明确的算法提速，表中小幅差异不作为优化收益。附件每次仍核对范围内 20,000 条缓存，以保留来源有效性和完整覆盖统计；这是当前剩余主要耗时，不以跳过校验或虚构覆盖降低时间。
+Chat improvements come from stopping unnecessary body decoding once exact matching has completed the current page; material date-query improvements come from filtering dates before reads. Materials without date limits, attachment text, and OCR have no clear algorithmic speedup; small differences in the table are not counted as optimization gains. Each attachment query still checks 20,000 in-scope caches to retain source validity and complete coverage statistics. This is the main remaining cost and is not reduced by skipping validation or fabricating coverage.
 
-完整 104 场景核对了固定命中身份、顺序、字段、分页和覆盖。大小写摘录修复使其中 5 个场景、81 个结果的省略号发生预期变化；逐字段对照确认除摘录外完全一致，原严格摘要比较失败记录也保留，没有将差异吞掉。最后的结束秒和畸形类型修复另有边界测试，最终代码参与串行测量。
+The full set of 104 scenarios checked fixed match identities, ordering, fields, pagination, and coverage. A snippet fix for letter case produced expected ellipsis changes for 81 results across 5 scenarios. Field-by-field comparisons confirmed complete equality apart from snippets. The original strict digest-comparison failures were retained rather than suppressed. The final end-second and malformed-type fixes have additional boundary tests, and final code was used in serial measurements.
 
-复现基准：
+Reproduce the benchmark:
 
 ```powershell
 .venv/Scripts/python tools/benchmark_unified_search.py --output .work/unified-search-before --sizes 1000 10000 --iterations 5
-# 修改并验证代码后，使用新的输出目录；默认要求整个结果完全一致。
+# After modifying and verifying the code, use a new output directory; complete result equality is required by default.
 .venv/Scripts/python tools/benchmark_unified_search.py --output .work/unified-search-after --sizes 1000 10000 --iterations 5 --baseline .work/unified-search-before/summary.json
 ```
 
-只有在明确验证摘录属于预期变化时才使用 `--allow-snippet-changes`；该选项仍要求非摘录结果全部一致，并逐场景报告差异。首次完整矩阵期间同机有其他开发检查，故主要性能结论取后续无这些并发工作的串行复测；未清理操作系统缓存。
+Use `--allow-snippet-changes` only after explicitly verifying that snippet changes are expected. This option still requires all nonsnippet results to be identical and reports differences per scenario. Other development checks ran on the same computer during the first full matrix, so the main performance conclusions use later serial retests without those concurrent workloads. The operating-system cache was not cleared.
 
-本轮验收记录：
+Acceptance records for this round:
 
-- 后端 20 个相关测试文件：329 项通过，另有 4 个 subtest；收尾边界修复后，受影响的统一搜索、API、附件和文字资料 5 个文件重新运行，77 项通过。两次数量有重叠，不相加。
-- 前端 14 个相关测试文件 137 项通过，导航 Node 测试 10 项通过；生产构建通过。
-- 生产 Nuxt 页面连接真实本机 HTTP 路由和合成 SQLite：四源结果、资料 20 + 3 翻页、打开对应资料、仅资料账号、零命中、损坏缓存分组报错及单独重试通过。1440／480 宽度的深浅主题无横向溢出和页面脚本错误，没有模型或 OCR 执行请求。
-- 最终服务另经真实 HTTP 核对四源结果及结束秒小数时间；独立审查确认覆盖文案、原消息来源标签、摘录、日期边界及畸形缓存问题已闭环。
-- 私有证据位于 `.work/unified-search-20261013/`，包括基准源码快照、`snippet-comparison.json`、`serial-final.json`、测试／构建日志、`browser-report.json`、`final-http.json` 和页面截图。临时验收服务在结束后关闭。
+- Backend, 20 related test files: 329 checks passed, plus 4 subtests. After final boundary fixes, the 5 affected unified-search, API, attachment, and text-material files were rerun, with 77 checks passing. These counts overlap and are not added together.
+- Frontend, 14 related test files: 137 checks passed; navigation Node tests passed 10 checks. The production build passed.
+- Production Nuxt pages connected to real local HTTP routes and synthetic SQLite passed checks for four-source results, material pagination of 20 + 3, opening the corresponding material, accounts containing only materials, zero matches, per-group corrupted-cache errors, and individual retries. Light/dark themes at widths of 1440/480 had no horizontal overflow or page script errors, and no requests to execute models or OCR.
+- The final service additionally checked four-source results and fractional timestamps in the end second over real HTTP. Independent review confirmed resolution of coverage wording, original-message source labels, snippets, date boundaries, and malformed caches.
+- Private evidence is in `.work/unified-search-20261013/`, including benchmark source snapshots, `snippet-comparison.json`, `serial-final.json`, test/build logs, `browser-report.json`, `final-http.json`, and page screenshots. Temporary acceptance services were shut down afterward.
 
-以上使用可丢弃的合成资料，没有读取或恢复用户的真实资料。未进行用户真实聊天库全量验收、真实模型／OCR 推理、真实微信操作或安装包验收；原消息导航通过组件回调与真实锚点协议测试，合成浏览器验收验证的是保存资料的实际打开流程。
+These checks used disposable synthetic materials and did not read or restore real user materials. They did not perform full acceptance of users' real chat databases, real model/OCR inference, real WeChat operations, or package acceptance. Original-message navigation was checked through component callbacks and real anchor-protocol tests; synthetic browser acceptance verified the actual flow for opening saved materials.

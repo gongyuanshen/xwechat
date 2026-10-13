@@ -1,37 +1,37 @@
-# 浏览性能与磁盘占用
+# Browsing Performance and Disk Usage
 
-## 长聊天浏览
+## Browsing Long Chats
 
-继续加载历史时，未变化消息保持原对象引用，避免重复更新整批正文；只有实际显示的时间分隔才做日期格式化。月历随滚动定位使用二分查找，减少逐条读取消息位置。
+When more history is loaded, unchanged messages retain their original object references to avoid updating whole batches of message bodies again. Only time separators actually displayed undergo date formatting. Calendar positioning during scrolling uses binary search to reduce per-message position reads.
 
-受控 Nuxt 开发路由中，已加载 5000 条文本后前插 50 条，三次中位加载耗时由 780.4 ms 降至 149.6 ms，等待双动画帧由 940.7 ms 降至 278.9 ms；日历位置读取由 2526 次降至 13 次。前插阅读位置偏差为 0 px，混合消息验证覆盖图片组展开与隐藏成员原文定位。
+In a controlled Nuxt development route, prepending 50 messages after loading 5000 text messages reduced the median load time across three runs from 780.4 ms to 149.6 ms, and the wait for two animation frames from 940.7 ms to 278.9 ms. Calendar position reads fell from 2526 to 13. The prepending reading-position deviation was 0 px; mixed-message checks covered image-group expansion and positioning to original text for hidden members.
 
-当前仍保留完整已加载消息 DOM，未引入虚拟列表或累计加载上限。该受控开发页面 GC 后整页堆内存由 578.2 MB 降至 537.0 MB，仍会随历史数量增长；这不是生产包或真实聊天的内存指标。原生按需布局试验会造成阅读位置偏移，未采用。
+The complete DOM of loaded messages is still retained; no virtual list or cumulative loading cap was introduced. After GC, whole-page heap memory in this controlled development page fell from 578.2 MB to 537.0 MB and still grows with the amount of history. These are not production-package or real-chat memory measurements. A native on-demand layout experiment caused reading-position shifts and was not adopted.
 
-## 磁盘占用入口
+## Disk Usage Entry Point
 
-打开左侧“设置 → 磁盘占用”，选择账号后查看本应用管理文件的占用。进入栏目时才开始统计，之后可点击“刷新占用”。
+Open "Settings → Disk Usage" in the left sidebar and select an account to inspect files managed by this application. Measurement starts only when this section is opened; click "Refresh Usage" to measure again.
 
-分别统计数据库、媒体与附件、搜索及媒体索引、保留快照、资料夹副本和其他账号文件。共享 AI 数据单独展示，不计入账号合计；微信原始目录不在扫描范围内。显示的是文件大小，实际磁盘占用和释放空间可能受文件系统影响。
+Databases, media and attachments, search and media indexes, retained snapshots, folder copies, and other account files are counted separately. Shared AI data is displayed separately and excluded from the account total; original WeChat directories are outside the scan scope. The display reports file sizes; actual disk use and freed space may vary with the file system.
 
-每个分类及共享数据下可展开“查看存放位置”，查看主要存放文件夹的绝对地址，并点击“复制地址”。同一主要目录合并显示，不展开具体文件、快照代或候选子目录，例如快照仅显示 `verified_snapshots`。跨多个主要目录时分别显示；尚未保存文件的分类显示空状态。主目录可能还包含其他账号或分类的文件，占用仍仅按所选账号及对应分类统计。地址遵循当前配置的输出位置，隐私模式下会模糊显示。
+Expand "View Storage Locations" under each category or shared data to see the absolute paths of the main storage folders and click "Copy Path". Entries for the same main directory are combined; individual files, snapshot generations, and candidate subdirectories are not expanded. For example, snapshots show only `verified_snapshots`. Multiple main directories are shown separately, and categories with no saved files display an empty state. A main directory may also contain files for other accounts or categories; usage is still counted only for the selected account and corresponding category. Paths follow the currently configured output location and are blurred in privacy mode.
 
-“清理搜索索引…”会先显示说明，再由用户点击“确认清理”。当前仅清理可重建的聊天全文索引及其临时文件，下次搜索会重新建立索引；本地语义索引、媒体路径索引、聊天数据库、防撤回原文、全部快照、导出、原媒体与资料夹副本保留。
+"Clear Search Index…" first displays an explanation, then requires the user to click "Confirm Cleanup". Currently, cleanup removes only the rebuildable chat full-text index and its temporary files; the next search rebuilds the index. Local semantic indexes, media path indexes, chat databases, anti-revoke original text, all snapshots, exports, original media, and folder copies are retained.
 
-账号正在读取、同步或运行任务时不能清理。若自动同步正在占用账号，可在本栏目点击“暂停自动同步”，等任务安全退出后刷新占用，再确认清理。清理完成后由用户点击“恢复自动同步”；普通状态轮询和迟到的自动启动请求不会撤销暂停。暂停在本次应用运行期间生效，重新启动应用会恢复默认同步行为。
+Cleanup is unavailable while the account is being read, synchronized, or used by a task. If automatic synchronization is using the account, click "Pause Automatic Synchronization" in this section, wait for the task to exit safely, refresh usage, and then confirm cleanup. After cleanup, the user clicks "Resume Automatic Synchronization". Ordinary status polling and late automatic-start requests do not revoke the pause. The pause lasts for the current application run; restarting the application restores default synchronization behavior.
 
-清理过程中不接受该账号的新任务。目录存在链接、来源重叠或元数据损坏时直接报错；部分删除失败会显示已删除数量，连接断开时会提示结果未确认，不会自动重试。
+New tasks for that account are rejected during cleanup. Directory links, overlapping sources, or corrupted metadata produce an immediate error. Partial deletion failures display the number deleted. A disconnected connection produces an unconfirmed-result message without automatic retry.
 
-## 同步后的全文索引
+## Full-Text Indexes After Synchronization
 
-新快照的搜索索引在独立临时库中准备，完整构建后才发布。符合复用条件时继承已有索引，仅处理发生变化的消息分片；分片是否未变由捕获记录和解密数据库内容共同确认。首次建库、显式重建或影响检索语义的共同依赖发生变化时仍执行全量构建。
+A new snapshot's search index is prepared in a separate temporary database and published only after a complete build. When reuse requirements are met, the existing index is inherited and only changed message shards are processed. Whether a shard is unchanged is confirmed jointly by capture records and decrypted database contents. Initial creation, explicit rebuilding, or changes to shared dependencies that affect retrieval semantics still require a full build.
 
-旧版本生成的索引没有复用所需的来源记录，更新后的首次建库仍需全量处理。校验与复制旧索引也有成本，不承诺所有数据规模下首次建库变快。
+Indexes created by older versions lack the source records needed for reuse, so the first build after updating still requires full processing. Validating and copying an old index also has a cost; faster initial creation is not promised for every data size.
 
-最终实现对 9 万条合成消息的单次复测：未变化快照由 2.131 s 降至 0.246 s，单分片变化由 2.148 s 降至 1.191 s；分别解码 0 条与 3 万条，结果与全量索引一致。首次建库由 2.104 s 增至 2.233 s。复用前也校验旧库必要表和持久计数，损坏时明确报错；合法空索引可复用。
+In a single retest of the final implementation with 90,000 synthetic messages, an unchanged snapshot improved from 2.131 s to 0.246 s, and a single changed shard from 2.148 s to 1.191 s. They decoded 0 and 30,000 messages respectively, with results matching the full index. Initial creation increased from 2.104 s to 2.233 s. Required tables and persistent counts in the old database are also validated before reuse, and corruption produces an explicit error; a valid empty index can be reused.
 
-这项优化不改变后台自动同步的提示策略，也不改变本地语义检索的启用范围、模型选择或增量规则。
+This optimization changes neither the notification policy for background automatic synchronization nor the enabled scope, model selection, or incremental rules of local semantic retrieval.
 
-## 验证范围
+## Verification Scope
 
-开发验证使用临时 SQLite 数据、组件测试和实际 Nuxt 路由上的受控数据。没有访问模型、向微信发送消息、清理真实用户文件或进行安装包验收；具体性能结果与设备、消息内容及数据规模有关。
+Development verification used temporary SQLite data, component tests, and controlled data on actual Nuxt routes. It did not access models, send WeChat messages, clean real user files, or perform package acceptance. Specific performance results depend on the device, message contents, and data size.

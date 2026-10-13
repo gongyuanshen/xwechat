@@ -1,89 +1,89 @@
-# 本地资料夹、保存搜索与附件
+# Local Folders, Saved Searches, and Attachments
 
-这些功能用于在当前微信账号内整理常用查询、聊天原文、附件与 Agent 报告。资料保存在本机，编辑资料副本不会修改微信原记录。侧栏的“本地资料夹”和“搜索”是应用自己的入口，与读取微信已有收藏的“收藏”页面分开。
+These features organize frequently used queries, original chat text, attachments, and Agent reports within the current WeChat account. Materials stay on the local computer, and editing a material copy does not change the original WeChat record. The sidebar's "Local Folders" and "Search" entries belong to the application and are separate from the "Favorites" page that reads existing WeChat favorites.
 
-## 保存与重用搜索条件
+## Save and Reuse Search Criteria
 
-1. 在聊天页面打开消息搜索，设置关键词、消息类型及其他筛选条件。
-2. 展开搜索侧栏中的 **“保存的搜索”**，输入名称，点击 **“保存当前”**。
-3. 点击已保存的名称，恢复条件并从第一页重新搜索当前数据；旁边可改名或删除。
+1. Open message search on the chat page and set keywords, message types, and other filters.
+2. Expand **"Saved Searches"** in the search sidebar, enter a name, and click **"Save Current"**.
+3. Click a saved name to restore its criteria and search current data again from the first page. You can rename or delete it using the adjacent controls.
 
-当前保存的组合包括：关键词、关键词／智能搜索模式、消息类型、当前会话／全部聊天范围、会话、发送者、群聊／私聊筛选以及时间范围。消息类型默认是文本，也可选择全部、文件、图片、视频等。关键词模式选定一种消息类型后可留空关键词，直接浏览该类型；选择全部类型或使用智能搜索时仍须输入关键词。智能搜索留空关键词会明确报错，需主动选择关键词模式才能仅按类型浏览。智能检索的索引要求和覆盖提示沿用现有搜索行为。
+Saved combinations currently include keywords, keyword/smart search mode, message type, current-conversation/all-chats scope, conversation, sender, group/private chat filters, and time range. The default message type is text; you can also select all types, files, images, videos, and others. In keyword mode, after selecting a specific message type, you can leave the keyword empty to browse that type directly. Selecting all types or using smart search still requires keywords. An empty keyword in smart search produces an explicit error; you must select keyword mode to browse by type alone. Smart retrieval retains the existing search behavior for index requirements and coverage notices.
 
-**日期可保存为固定范围或滚动的最近 N 天。** 默认记录实际起止时间，旧的保存搜索继续采用固定范围。先选择“最近 7 天”等时间范围，再在保存区域勾选“每次重查最近 N 天”，应用该条搜索时才会重算日期；同一次查询的续页保持一致的时间范围。固定范围应用后，日期控件显示相应日期，查询保留保存时的精确时间；手动修改日期后按所选日期重新搜索。不保存旧结果、分页位置或检索票据。会话已不在当前账号时会显示错误。
+**Dates can be saved as a fixed range or a rolling last N days.** Actual start and end times are recorded by default; older saved searches continue using fixed ranges. Select a time range such as "Last 7 Days", then check "Search the Last N Days Each Time" in the save area. Dates are recalculated only when applying that saved search; subsequent pages in the same query keep a consistent time range. After applying a fixed range, the date controls show the corresponding dates while the query retains the precise times recorded when saving. Manually changing the dates searches again using the selected dates. Old results, pagination positions, and retrieval tickets are not saved. An error is shown if the conversation is no longer in the current account.
 
-## 从聊天消息加入资料夹
+## Add Chat Messages to a Folder
 
-1. 在聊天原消息上打开右键菜单，选择 **“保存原文到资料夹”**；文件、图片、视频也可选择 **“保存附件副本到资料夹”**。
-2. 选择已有资料夹，或在弹窗中新建；可填写标题、备注和逗号分隔的标签。
-3. 点击 **“保存副本”** 或 **“保存附件副本”**，从侧栏 **“本地资料夹”** 查看。
+1. Open the context menu on an original chat message and select **"Save Original Text to Folder"**. Files, images, and videos also offer **"Save Attachment Copy to Folder"**.
+2. Select an existing folder or create one in the dialog. You can enter a title, notes, and comma-separated tags.
+3. Click **"Save Copy"** or **"Save Attachment Copy"**, then view the result in **"Local Folders"** in the sidebar.
 
-保存时按当前账号、会话与消息定位标识核对原消息，再保存原始文本和发送者、时间、类型等来源信息。合并转发中的子记录、浮窗中的合成记录等没有可验证原消息定位的条目不会显示此入口。首次保存时原消息必须可读取，来源核对失败会明确报错。
+When saving, the application checks the original message against the current account, conversation, and message location identifiers, then saves the original text and source information such as sender, time, and type. Entries without verifiable original-message locations, such as subrecords in merged forwards or synthetic records in floating windows, do not show this entry point. The original message must be readable on the first save; source verification failures produce an explicit error.
 
-“保存原文到资料夹”保存原文和来源信息。对于文件、图片、视频，还可选择保存附件副本；附件视图的“加入资料夹”直接保存附件实体。副本写入成功后才显示保存成功。文件在本机不可读、来源不匹配或磁盘空间不足时会明确报错。
+"Save Original Text to Folder" saves original text and source information. For files, images, and videos, you can also save an attachment copy. "Add to Folder" in the attachment view directly saves the attachment file. Success appears only after the copy has been written successfully. An unreadable local file, mismatched source, or insufficient disk space produces an explicit error.
 
-本机未找到文件、图片或视频时，保存及下载操作会提示先在电脑版微信中打开对应消息，下载原附件／原图／完整视频，再返回重试；若仍未找到，刷新当前账号数据后再试。保存失败时弹窗保留标题、备注、标签和所选资料夹，不会显示保存成功。图片已经找到但无法解码或解密时会显示另一种错误，不会误报为尚未下载。
+When a file, image, or video is not found locally, saving and downloading prompt you to open the corresponding message in desktop WeChat, download the original attachment/original image/full video, and then return to retry. If it is still not found, refresh the current account's data and try again. A failed save keeps the title, notes, tags, and selected folder in the dialog and does not show success. An image that has been found but cannot be decoded or decrypted produces a different error rather than being incorrectly reported as not downloaded.
 
-文件消息缺少附件定位信息，或账号缺少可访问的附件来源目录时，会明确报告相应原因；这种情况需要检查消息数据或资源来源，下载提示不会代替这些错误。
+If a file message lacks attachment location information, or the account lacks an accessible attachment source directory, the specific reason is reported explicitly. These cases require inspecting message data or resource sources; a download prompt does not replace those errors.
 
-附件资料保留文件名、大小、SHA-256 摘要及原消息来源，可从本地资料夹单独下载；图片和视频提供预览。原文件随后丢失，已经保存的附件副本仍可下载，“打开原消息”则依赖原始记录是否存在。旧的聊天原文资料不会自动补成附件副本；语音及其他消息类型仍可保存原文，不提供附件实体保存。
+Attachment materials retain the filename, size, SHA-256 digest, and original message source, and can be downloaded independently from Local Folders. Images and videos offer previews. If the original file is later lost, the saved attachment copy remains downloadable; "Open Original Message" depends on the original record still existing. Older original-chat-text materials are not automatically converted into attachment copies. Voice and other message types can still save original text, but do not offer attachment file saving.
 
-**图片保存的是本机当前可解码的版本，可能是缩略图，不保证原图质量。** 保存弹窗及资料详情会说明此边界；保存副本不等于从微信恢复原图。
+**The saved image is the version currently decodable on the local computer; it may be a thumbnail, and original-image quality is not guaranteed.** The save dialog and material details explain this limit. Saving a copy does not recover an original image from WeChat.
 
-## 跨聊天查找与处理附件
+## Find and Process Attachments Across Chats
 
-1. 从侧栏打开 **“搜索”** 并切换到 **“附件”**，选择账号后浏览文件、图片和视频。关键词和日期与“全部内容”共用，留空关键词可以浏览附件。
-2. 按名称、类型、会话、发送者及起止日期筛选；名称与正文可分别搜索，也可一起搜索。首次使用需要现有本地消息索引准备完成，页面会显示状态。
-3. 点击 **“原消息”** 回到出处；图片、视频可预览，所有支持的附件均可下载或加入资料夹。本机未下载的附件会显示读取失败，不会从外部自动补取。
-4. 普通文档文字可点击单项 **“提取正文”**，或 **“提取当前页文件正文”**。
-5. 图片与 PDF 可点击单项 **“识别图片文字”**／**“识别 PDF 图片文字”**，或 **“识别当前页图片与 PDF 文字”**。批量操作可停止后续附件，当前附件处理完成后停止；完成后重新查询正文搜索。
-6. 单项提取／识别成功后直接展开全文，已有结果可点击 **“查看全文”**。展开区域提供 **“复制全文”**、**“导出 TXT”** 和 **“保存识别文字”**；这些操作使用完整缓存，不使用列表摘录。复制失败会明确提示，也可直接选择全文复制。
+1. Open **"Search"** from the sidebar, switch to **"Attachments"**, and select an account to browse files, images, and videos. Keywords and dates are shared with "All Content"; an empty keyword lets you browse attachments.
+2. Filter by name, type, conversation, sender, and start/end dates. Names and bodies can be searched separately or together. The existing local message index must be ready on first use, and the page shows its status.
+3. Click **"Original Message"** to return to the source. Images and videos can be previewed; all supported attachments can be downloaded or added to a folder. Attachments not downloaded locally show a read failure and are not automatically fetched externally.
+4. For ordinary document text, click **"Extract Text"** on one item or **"Extract Text from Files on This Page"**.
+5. For images and PDFs, click **"Recognize Image Text"**/**"Recognize Text in PDF Images"** on one item, or **"Recognize Text in Images and PDFs on This Page"**. Batch operations can stop subsequent attachments and stop after the current attachment finishes. After completion, rerun the body-text search.
+6. Successful extraction/recognition of one item immediately expands its full text. For existing results, click **"View Full Text"**. The expanded area offers **"Copy Full Text"**, **"Export TXT"**, and **"Save Recognized Text"**. These operations use the complete cache rather than list snippets. Copy failures are reported explicitly; you can also select and copy the full text directly.
 
-**“加入资料夹”保存附件文件，“保存识别文字”保存文字副本及出处。** 文字资料保留提取方法、OCR 引擎、输入文件摘要和提取时间，原消息仍可定位；后续缓存更新不会覆盖已保存副本。资料夹里可添加笔记／标签、人工核验并导出 Markdown／HTML，派生正文只读。只有完整且非空的结果可以保存为文字资料；历史部分结果会标明范围。保存前结果或来源发生变化时会要求重新查看，不会悄悄保存另一份内容。
+**"Add to Folder" saves the attachment file; "Save Recognized Text" saves a text copy and its source.** Text materials retain the extraction method, OCR engine, input file digest, and extraction time, while the original message remains locatable. Later cache updates do not overwrite saved copies. Within a folder, you can add notes/tags, mark manual verification, and export Markdown/HTML; derived text is read-only. Only complete, nonempty results can be saved as text materials; historical partial results identify their scope. If the result or source changes before saving, you must review it again; a different version is not silently saved.
 
-普通正文提取支持 TXT、MD、CSV、PDF、DOCX、XLSX、PPTX，仅解析已有文字。本地 OCR 支持图片消息、静态 PNG/JPEG/WebP/BMP/TIFF 文件，以及 PDF 扫描页和内嵌图片；PDF 中已有文字也保留。结果标注页码／图片位置和“本地 OCR”，需核对原图。图片消息可能只有本机可读取的缩略图，不保证原图质量；未检测到文字不代表图片一定没有文字。
+Ordinary text extraction supports TXT, MD, CSV, PDF, DOCX, XLSX, and PPTX, and parses only existing text. Local OCR supports image messages, static PNG/JPEG/WebP/BMP/TIFF files, scanned PDF pages, and embedded images; existing PDF text is also retained. Results mark page numbers/image positions and "Local OCR" and require checking against the original image. Image messages may provide only locally readable thumbnails, with no guarantee of original-image quality. Detecting no text does not establish that an image contains no text.
 
-OCR 使用随项目依赖与桌面构建收集的 RapidOCR 3.10.0 权重，在本机 CPU 或已验证的 AMD DirectML GPU 执行，不在识别时下载模型或调用云端服务。在 **设置 → 本地加速** 管理设备和组件，附件视图也提供入口；完成结果记录那次识别的实际设备、部分 CPU 执行及改用 CPU 的原因。使用方法和 AMD 实测边界见[本地加速说明](local-acceleration.md)。缺少／损坏的模型、损坏图片、动态图或多帧图片、超出像素限制的图片会明确报错。
+OCR uses RapidOCR 3.10.0 weights collected with the project dependencies and desktop build. It runs on the local CPU or a verified AMD DirectML GPU, without downloading models during recognition or calling cloud services. Manage devices and components in **Settings → Local Acceleration**; the attachment view also provides an entry point. Completed results record the actual device used for that run, any partial CPU execution, and the reason for switching to CPU. See [Local Acceleration](local-acceleration.md) for usage and the limits of AMD measurements. Missing/corrupted models, corrupted images, animated or multiframe images, and images exceeding pixel limits produce explicit errors.
 
-正文搜索仅覆盖已经提取或识别的文字，页面显示当前筛选范围的覆盖。整项处理完成后才原子发布缓存，失败不会把部分结果标为完整；对同一文件再次普通提取会保留已有完整 OCR 缓存。此功能需主动执行，不自动扫描全库。聊天普通关键词搜索仍查原消息字段；OCR 字面查找使用附件视图的正文搜索，智能混合检索需更新本地检索索引后才能使用这些缓存。Agent 引用会保留消息出处及 OCR 标识，识别文字需人工核对。
+Body-text search covers only text already extracted or recognized, and the page displays coverage for the current filters. The cache is published atomically only when an entire item finishes; failures do not mark partial results as complete. Repeating ordinary extraction on the same file retains any existing complete OCR cache. This feature requires an explicit action and does not automatically scan the whole library. Ordinary chat keyword search still searches original message fields. Literal OCR search uses body-text search in the attachment view; smart hybrid retrieval requires updating the local retrieval index before it can use these caches. Agent citations retain message sources and OCR markers; recognized text requires manual checking.
 
-正文解析与 OCR 的单文件上限为 200 MB，Office 解压内容上限沿用解析器的 512 MB；超限明确拒绝，不截断成成功结果。附件复制和下载不采用这个解析上限，复制前检查实际可用磁盘空间。
+Text parsing and OCR have a per-file limit of 200 MB; the Office decompressed-content limit remains the parser's 512 MB. Exceeding a limit is explicitly rejected rather than truncated into a successful result. Attachment copying and downloading do not use this parsing limit; actual available disk space is checked before copying.
 
-## 保存、编辑与导出 Agent 报告
+## Save, Edit, and Export Agent Reports
 
-1. 在 Agent 回答完成且有正文后，点击回答下方 **“保存报告”**，选择资料夹并保存副本。聊天内 AI 面板的“对话”模式使用同一入口。
-2. 在侧栏 **“本地资料夹”** 中选择报告，可修改标题、报告正文、备注、标签及所在资料夹，再点击 **“保存修改”**。
-3. 保存修改后选择 **“导出 Markdown”** 或 **“导出 HTML”**，获得可跨机器阅读的文件。
+1. Once an Agent answer is complete and has a body, click **"Save Report"** below it, choose a folder, and save a copy. "Conversation" mode in the in-chat AI panel uses the same entry point.
+2. Select the report in **"Local Folders"** in the sidebar. You can edit its title, report body, notes, tags, and folder, then click **"Save Changes"**.
+3. After saving changes, select **"Export Markdown"** or **"Export HTML"** to obtain a file readable across machines.
 
-报告保存时保留原始回答、原始引用证据和可用的范围、时间、覆盖、模型元数据。编辑正文只影响资料副本，原始回答与引用继续保留；页面可查看原始回答和来源，导出会附来源信息，正文已编辑时也附原始回答。报告原任务或必需的引用证据缺失时不能伪造保存成功。
+Saving a report retains the original answer, original citation evidence, and available scope, time, coverage, and model metadata. Editing the body affects only the material copy; the original answer and citations remain. The page lets you view the original answer and sources. Exports include source information and, when the body has been edited, the original answer as well. If the report's original task or required citation evidence is missing, a successful save cannot be fabricated.
 
-AI 归纳和关系推测需要人工核对。资料默认标为 **“待人工核验”**；核对后可勾选 **“我已人工核验此资料”** 并保存。这个标记由用户维护，不代表程序自动验证了报告结论。原始证据副本也不是来源认证或数字签名。
+AI summaries and inferred relationships require manual checking. Materials default to **"Awaiting Manual Verification"**. After checking, select **"I Have Manually Verified This Material"** and save. The user maintains this marker; it does not mean the application automatically verified the report's conclusions. Original evidence copies are not source authentication or digital signatures.
 
-## 持续更新的专题档案
+## Continuously Updated Topic Archives
 
-每个资料夹都可以作为一个专题，例如“论文投稿”“一次旅行”或“某个项目”，不必建立第二套资料库。
+Each folder can serve as a topic, such as "Paper Submission", "A Trip", or "A Project", without creating a second library.
 
-1. 新建或选择资料夹，从不同聊天、附件视图和 Agent 回答中把相关资料保存进去。已有资料也可在详情中修改“所在资料夹”后保存。
-2. 选择资料夹后，在右侧 **“专题档案”** 查看当前资料与上一保存版本的对照；也可通过资料列表上方 **“专题档案 · 版本与变化”** 重新打开。窄屏下点击“返回资料列表”切换回资料。
-3. 对照明确列出 **新增、移除、修改**。展开条目可阅读完整保存正文和备注；修改项并列展示前后正文、标题、备注、标签和核验状态。报告仍保留原始回答、原文证据与出处，原消息按钮继续使用现有定位流程。
-4. 填写版本名称，以及可选的 **“安排变化”**、**“待修正结论”**，点击 **“保存新版本”**。这两个字段是用户的人工记录，用来说明日期／分工的调整和旧结论的核对结果；程序不会把文本差异伪装成自动理解的计划变更，也不会自动调用模型。
-5. 下次手动加入新原文、附件或报告后，再回到专题查看变化。可继续使用聊天中的“保存的搜索”重新查找当前数据，再把选中的材料加入同一资料夹；专题不会自动执行搜索或全库扫描。
-6. 在 **“查看版本”** 选择历史版本，可查看当时的安排记录、待修正结论、与前一版本对照，或切换 **“此版本全部资料”**。历史版本是只读快照，后续修改资料或删除原 Agent 任务不会改写它。
+1. Create or select a folder and save relevant materials from different chats, the attachment view, and Agent answers. Existing materials can also be moved by changing "Folder" in their details and saving.
+2. After selecting a folder, inspect the comparison between current materials and the last saved version in **"Topic Archive"** on the right. You can reopen it using **"Topic Archive · Versions and Changes"** above the material list. On narrow screens, click "Back to Material List" to return to materials.
+3. The comparison explicitly lists **Added, Removed, and Modified** items. Expand an item to read the full saved body and notes. Modified items show the before/after body, title, notes, tags, and verification state side by side. Reports retain the original answer, original-text evidence, and sources; original-message buttons continue using the existing navigation flow.
+4. Enter a version name and optional **"Schedule Changes"** and **"Conclusions Requiring Correction"**, then click **"Save New Version"**. These two fields are manual user records describing changes to dates/responsibilities and checks of earlier conclusions. The application does not present text differences as automatically understood plan changes and does not automatically call models.
+5. After manually adding new original text, attachments, or reports, return to the topic to inspect changes. You can continue using "Saved Searches" in chat to search current data again, then add selected materials to the same folder. Topics do not execute searches or full-library scans automatically.
+6. Select a historical version in **"View Version"** to inspect its schedule notes, conclusions requiring correction, and comparison with the previous version, or switch to **"All Materials in This Version"**. Historical versions are read-only snapshots; later material edits or deletion of the original Agent task do not alter them.
 
-版本存储在现有按账号隔离的 AIStore 中，不增加外部服务。每次保存复制资料文本、引用及报告证据；附件文件为不可变的已保存本地副本，由当前资料和历史版本共同引用，不为每个版本重复复制文件。删除当前资料或把它移到另一资料夹后，旧版本仍可读取原文和下载附件。只有最后一份当前资料及历史版本引用都移除后才清理实体文件；删除资料夹会移除该专题的全部历史版本。暂不提供单独改写或删除某一历史版本的操作。
+Versions are stored in the existing account-isolated AIStore without adding an external service. Each save copies material text, citations, and report evidence. Attachment files are immutable saved local copies referenced jointly by current materials and historical versions; files are not duplicated for every version. After deleting current materials or moving them to another folder, older versions can still read original text and download attachments. A file is cleaned up only when its last reference from both current materials and historical versions is removed. Deleting a folder removes all historical versions of that topic. Editing or deleting an individual historical version is not currently available.
 
-保存版本依据刚查看的资料状态。资料、资料夹名称或历史版本在其他页面被改变时，提交会明确返回冲突，需点击“刷新变化对照”后重新核对；不会静默合并或自动重试。保存失败保留填写的版本说明。当前附件副本缺失时不能保存新的版本；历史下载缺失文件时返回明确错误。版本只保存已经提交的资料修改，不包含还留在编辑框中的草稿。
+Saving a version uses the material state just reviewed. If materials, the folder name, or historical versions change on another page, submission explicitly returns a conflict. Click "Refresh Change Comparison" and check again; there is no silent merge or automatic retry. A failed save retains the entered version description. A new version cannot be saved if a current attachment copy is missing; downloading a missing historical file returns an explicit error. Versions save only committed material changes, excluding drafts still in editing fields.
 
-自动化验证覆盖前后对照、独立历史内容、并发冲突、跨账号隔离、报告原始证据、历史附件读取、跨资料夹移动与最终引用清理、下载期间阻止最终删除，以及前端失败说明保留、异步账号切换和隐私遮挡。真实微信导入数据与安装包使用仍须独立验收，不能由这些测试替代。
+Automated verification covers before/after comparisons, independent historical contents, concurrent conflicts, cross-account isolation, original report evidence, historical attachment reads, moves across folders and final-reference cleanup, blocking final deletion during downloads, and frontend retention of descriptions after failure, asynchronous account switching, and privacy masking. Real imported WeChat data and package use still require separate acceptance and cannot be established by these tests.
 
-## 管理与数据边界
+## Management and Data Boundaries
 
-- **按账号隔离**：资料夹、资料与保存搜索属于创建时的微信账号；切换账号后只显示该账号的内容。
-- **管理资料**：资料页可按标题、备注和标签查找，移动资料到其他资料夹、重命名资料夹或删除副本。聊天原文与附件来源正文不能编辑；报告正文可编辑。
-- **跨来源检索**：侧栏的[搜索](unified-search.md)同时查询聊天、附件提取正文、OCR 文字及当前资料正文／备注／标签，显示各来源的实际覆盖；仅恢复资料、没有聊天库的账号也可查询保存内容。
-- **删除范围**：删除资料副本不删除微信原消息或原文件；历史版本已引用的资料及附件仍保留。删除资料夹会同时删除其中的当前资料、全部历史版本和不再被其他资料／版本引用的附件。删除本地账号会清除该账号的资料、资料夹、专题版本、保存搜索和附件副本。
-- **并发与失败**：附件正在下载或预览时，删除其最后一份资料／历史版本引用会被明确拒绝，需结束读取后再删除。若记录已删除但磁盘副本清理失败，界面会同时说明这两种状态，不显示普通成功。
-- **归档边界**：资料记录存储在应用的 AIStore 中，附件副本存储在其资料库目录。现有首页“导出归档”的账号数据库／资源归档不包含这些资料和保存搜索，重新导入账号归档不会恢复它们。
-- **阅读导出与备份不同**：Markdown／HTML 可在另一台机器阅读，但当前没有将它们导回资料夹或恢复保存搜索的入口。文字导出不会嵌入附件实体，只附文件名、大小和摘要；需要单独下载附件副本。
+- **Account isolation**: Folders, materials, and saved searches belong to the WeChat account used at creation; switching accounts shows only that account's contents.
+- **Material management**: The material page can search titles, notes, and tags, move materials to other folders, rename folders, or delete copies. Original chat text and attachment-source bodies cannot be edited; report bodies can.
+- **Cross-source retrieval**: Sidebar [Search](unified-search.md) queries chats, attachment extraction text, OCR text, and current material bodies/notes/tags together and shows actual coverage per source. Accounts with only restored materials and no chat database can also search saved contents.
+- **Deletion scope**: Deleting a material copy does not delete the original WeChat message or file; materials and attachments referenced by historical versions are retained. Deleting a folder also deletes its current materials, all historical versions, and attachments no longer referenced by other materials/versions. Deleting a local account clears that account's materials, folders, topic versions, saved searches, and attachment copies.
+- **Concurrency and failure**: While an attachment is downloading or being previewed, deleting its final material/historical-version reference is explicitly rejected; finish reading before deleting. If a record has been deleted but disk-copy cleanup fails, the interface explains both states rather than showing ordinary success.
+- **Archive boundary**: Material records are stored in the application's AIStore and attachment copies in its library directory. The existing home-page "Export Archive" account database/resource archive does not contain these materials or saved searches; reimporting an account archive does not restore them.
+- **Reading exports differ from backups**: Markdown/HTML can be read on another machine, but there is currently no entry point to import them back into folders or restore saved searches. Text exports do not embed attachment files; they include only filenames, sizes, and digests. Attachment copies must be downloaded separately.
 
-保存、导出或分享前，请检查实际正文、姓名、聊天来源和备注是否包含不希望公开的信息。
+Before saving, exporting, or sharing, check whether the actual body, names, chat sources, and notes contain information you do not want to disclose.

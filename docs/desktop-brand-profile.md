@@ -1,18 +1,18 @@
-# 桌面品牌与持久数据目录
+# Desktop Branding and Persistent Data Directories
 
-桌面应用、npm 包和预加载品牌标记统一为 `xwechat`。`window.wechatDesktop` 是现有微信桌面 IPC 接口名称，保持不变。
+The desktop application, npm package, and preload branding marker use `xwechat` consistently. `window.wechatDesktop` remains the existing WeChat desktop IPC interface name.
 
-Electron 默认使用包名决定 `userData`，而 `sessionData` 默认跟随 `userData`。为避免更名后账号、设置和浏览器存储看似重置，应用在获取单实例锁和 `ready` 之前显式固定这两个目录：
+Electron uses the package name to determine `userData` by default, and `sessionData` follows `userData` by default. To prevent accounts, settings, and browser storage from appearing reset after renaming, the application explicitly fixes both directories before acquiring the single-instance lock and before `ready`:
 
-- 开发版始终使用 `appData/wechat-data-analysis-desktop`，保持原开发环境的数据隔离。
-- 安装版在 `appData/xwechat` 已有持久状态时优先使用该目录。
-- 安装版只有旧目录有持久状态时沿用旧目录。
-- 全新安装版使用 `appData/xwechat`。
+- Development builds always use `appData/wechat-data-analysis-desktop`, preserving the original development environment's data isolation.
+- Installed builds prefer `appData/xwechat` when it already contains persistent state.
+- Installed builds retain the old directory when only that directory contains persistent state.
+- Fresh installed builds use `appData/xwechat`.
 
-持久状态通过已有存储入口的目录项判断：配置文件 `desktop-settings.json` 或 `ai-notifications.json` 存在即算已有状态；`Local Storage` 或 `output` 目录必须含有条目，空目录不算已有状态。不读取账号数据库或配置内容；损坏配置仍交给现有配置解析流程暴露错误。目录不存在与读取失败分别处理，权限或其它读取错误直接抛出。
+Persistent state is determined from directory entries at existing storage entry points. The presence of either configuration file, `desktop-settings.json` or `ai-notifications.json`, counts as existing state. The `Local Storage` or `output` directory must contain entries; empty directories do not count as existing state. Account databases and configuration contents are not read. Corrupted configuration continues through the existing configuration parser, which exposes errors. Missing directories and read failures are handled separately; permission and other read errors are thrown directly.
 
-此流程不迁移、不改名、不删除任何既有目录。`WECHAT_TOOL_DATA_DIR` 和 `WECHAT_TOOL_OUTPUT_DIR` 的原有显式配置规则继续生效。旧包名只作为必要的历史存储路径和回归测试数据保留。
+This flow does not migrate, rename, or delete any existing directory. Existing explicit configuration rules for `WECHAT_TOOL_DATA_DIR` and `WECHAT_TOOL_OUTPUT_DIR` still apply. The old package name is retained only as a necessary historical storage path and regression-test data.
 
-所有原生子窗口及其后代使用当前项目图标。公众号文章的原生标题保持为空；其它窗口初始标题为 `xwechat`，网页仍可正常更新标题。
+All native child windows and their descendants use the current project icon. Native titles for public-account articles remain empty; other windows initially use `xwechat`, and web pages can still update their titles normally.
 
-参考：[Electron app 路径与名称 API](https://www.electronjs.org/docs/latest/api/app#appsetpathname-path)、[原生子窗口创建规则](https://www.electronjs.org/docs/latest/api/window-open)。
+References: [Electron app path and name APIs](https://www.electronjs.org/docs/latest/api/app#appsetpathname-path), [Native child-window creation rules](https://www.electronjs.org/docs/latest/api/window-open).

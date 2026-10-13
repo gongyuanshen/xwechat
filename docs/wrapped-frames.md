@@ -1,51 +1,47 @@
-# 年度总结分享画幅调研（2026-08）
+# Annual Summary Sharing Frame Research (2026-08)
 
-给「年度总结」做分享出图时，画幅不是随便挑的：每个平台对上传图片的比例处理规则不同，
-挑错比例的直接后果是**平台替你裁**——裁掉的往往正是数字和标题。
+When exporting an Annual Summary as a shareable image, the frame cannot be chosen arbitrarily: each platform handles uploaded image aspect ratios differently. Choosing the wrong ratio means **the platform crops the image for you**, often cutting off numbers and titles.
 
-本文是画幅预设 `frontend/lib/wrapped-stage.js` 里 `FRAME_PRESETS` 的取值依据。
+This document provides the basis for `FRAME_PRESETS` in `frontend/lib/wrapped-stage.js`.
 
-## 一、落地的 6 个画幅（+「跟随窗口」）
+## Implemented Frames: 6 Presets + "Follow Window"
 
-| 画幅 | 导出像素 | 覆盖平台 | 为什么必须有 |
+| Frame | Export pixels | Platforms covered | Why it is needed |
 |---|---|---|---|
-| **9:16** | 1080×1920 | 朋友圈单图 · 抖音 · 快手 · 微信视频号 · IG Stories/Reels · FB Stories · TikTok · YouTube Shorts | 覆盖面第一。一张图同时吃下国内 4 个入口 + 海外 4 个入口 |
-| **3:4** | 1080×1440 | 小红书笔记 · 抖音图文 · Instagram Feed 与主页宫格 | 国内图文第一场景。小红书**整篇笔记只允许一种比例**，且 IG 主页宫格本来就按 3:4 裁——**唯一中外都不裁的竖版** |
-| **4:5** | 1080×1350 | Instagram · Facebook · Threads · LinkedIn 信息流 | 海外 Feed 占屏最大且不被裁的标准竖版。与 3:4 视觉接近但**不可互替** |
-| **1:1** | 1080×1080 | 朋友圈九宫格 · 微博 · QQ空间 · B站动态 · IG/X/LinkedIn 方图 | 保底格。国内四大动态平台**三张图以上一律中心裁成 1:1**，不给方图＝让平台乱裁 |
-| **4:3** | 1440×1080 | 图文横版 · 演示稿 | 横版里比 16:9 信息密度高，适合一屏塞完整张卡 |
-| **16:9** | 1920×1080 | X 时间线 · B站封面 · 网页分享卡（OG image） | X 会把竖图中心裁成约 16:9 预览，只有 16:9 满宽显示 |
-| 跟随窗口 | — | 桌面浏览 / 全屏演示 | 默认值，行为与舞台化之前完全一致 |
+| **9:16** | 1080×1920 | WeChat Moments single image · Douyin · Kuaishou · WeChat Channels · IG Stories/Reels · FB Stories · TikTok · YouTube Shorts | The widest coverage. One image serves 4 domestic and 4 international entry points |
+| **3:4** | 1080×1440 | Xiaohongshu notes · Douyin image/text posts · Instagram Feed and profile grid | The primary domestic image/text use case. Xiaohongshu **allows only one ratio throughout a note**, and IG profile grids already crop to 3:4: **the only portrait format avoiding crops on both domestic and international platforms** |
+| **4:5** | 1080×1350 | Instagram · Facebook · Threads · LinkedIn feeds | The standard portrait format that occupies the most space in international feeds without cropping. Visually close to 3:4 but **not interchangeable** |
+| **1:1** | 1080×1080 | WeChat Moments nine-image grid · Weibo · Qzone · Bilibili posts · IG/X/LinkedIn square images | The baseline grid format. The four major domestic social-post platforms **center-crop sets of three or more images to 1:1**; without square images, the platform decides what to crop |
+| **4:3** | 1440×1080 | Landscape image/text posts · Presentations | Greater information density than 16:9 among landscape formats, suitable for fitting a complete card on one screen |
+| **16:9** | 1920×1080 | X timeline · Bilibili covers · Web sharing cards (OG image) | X center-crops portrait images to approximately 16:9 previews; only 16:9 displays at full width |
+| Follow Window | — | Desktop browsing / Full-screen presentation | The default, with behavior identical to the version before the stage layout |
 
-## 二、平台安全区（排版时要避开的遮挡）
+## Platform Safe Areas: Avoiding Overlays
 
-- **9:16 最紧**：IG Stories 顶部 ~250px（头像/进度条）、底部 ~250px；同一张要投 Reels 时底部要留到 ~420px；
-  TikTok 顶部 ~150px、底部 250–400px、**右侧 ~120px**（点赞/评论/分享按钮列）。
-  结论：核心内容压在中央 **1080×1420** 内，右侧再留 120px，才能一张通投。
-- **3:4 小红书信息流封面**：顶部 ~150px、底部 ~200px 会被标题文案与互动按钮压住，核心信息放画面中心偏上 1/3。
-- **1:1**：基本无遮挡，是最省心的一格。
-- **4:5**：Feed 内无遮挡，但 IG 主页宫格会把它再裁成 3:4，上下各留 ~8% 余量。
-- **16:9**：X 无遮挡；链接预览卡在部分客户端会裁到 1.91:1，重要元素别贴边。
+- **9:16 has the tightest limits**: IG Stories uses approximately 250px at the top (avatar/progress bar) and 250px at the bottom. For the same image to work in Reels, leave approximately 420px at the bottom.
+  TikTok uses approximately 150px at the top, 250–400px at the bottom, and **120px on the right** for the like/comment/share button column.
+  Keep core content within the central **1080×1420**, with another 120px reserved on the right, to share one image across these destinations.
+- **3:4 Xiaohongshu feed covers**: Approximately 150px at the top and 200px at the bottom are covered by title text and interaction buttons. Place core information in the upper central 1/3 of the image.
+- **1:1**: Generally free of overlays and the easiest format to manage.
+- **4:5**: No feed overlays, but the IG profile grid crops it again to 3:4; leave approximately 8% extra space at both top and bottom.
+- **16:9**: No overlays on X. Link-preview cards may crop to 1.91:1 in some clients, so keep important elements away from the edges.
 
-## 三、体积与格式
+## File Size and Format
 
-- 统一 sRGB；文字/线条为主的数据图走 PNG 或高质量 JPG。
-- 小红书单张建议按 ≤10MB 设计（有 10/20MB 两种口径，取小值）；微博 ≤5MB 且上传宽度上限 2048px；
-  公众号图 ≤5MB；B站封面 ≤2MB；X 移动端 5MB。
-- 朋友圈非「原图」发送会被强压缩（长边压到 1080–2200px），文字类长图务必勾原图。
+- Use sRGB throughout; data graphics dominated by text/lines should use PNG or high-quality JPG.
+- Design each Xiaohongshu image for ≤10MB (both 10/20MB limits are reported; use the smaller value). Weibo: ≤5MB and a maximum upload width of 2048px.
+  Public-account images: ≤5MB; Bilibili covers: ≤2MB; X mobile: 5MB.
+- WeChat Moments heavily compresses images sent without "Original Image" (reducing the long edge to 1080–2200px). For long images containing text, select the original-image option.
 
-## 四、暂未落地的两格
+## Two Formats Not Yet Implemented
 
-- **长图（1080×2400+，高度自适应）**：中国用户「一张长图甩进微信群」是真实第一直觉，覆盖度能排进前三。
-  但它需要把 8 张卡纵向拼成一张连续画布，是与「幻灯片 deck」不同的渲染模型，属于独立特性。
-- **2:3（1000×1500）Pinterest**：单平台专供，与其它画幅用户重叠度接近零；只有明确要打欧美长尾流量时才值得占一格。
-  注意 Pinterest 的硬红线：超过约 1:2.1 的长图会被底部截断并降权——**长图千万别投 Pinterest**。
+- **Long image (1080×2400+, adaptive height)**: For Chinese users, sending a single long image to a WeChat group is a natural first choice and ranks among the top three in coverage.
+  It requires stitching 8 cards vertically into one continuous canvas, a rendering model distinct from a slide deck, so it is a separate feature.
+- **2:3 (1000×1500), Pinterest**: A single-platform format with almost no audience overlap with the other frames. It merits a preset only when explicitly targeting long-tail traffic in Europe and North America.
+  Pinterest's hard limit matters: images longer than roughly 1:2.1 are cut off at the bottom and downranked. **Do not post long images to Pinterest.**
 
-## 五、来源与可靠性
+## Sources and Reliability
 
-海外规格取自 Hootsuite《Social media image sizes for all networks》（2026-08 更新）与 Buffer《Social Media Image Sizes in 2026》（2026-05 更新）；
-Stories/Reels 安全区取自 2026-03 Meta 统一后的广告安全区指南；TikTok 安全区取自 2026 年多份规格指南。
+International specifications come from Hootsuite's "Social media image sizes for all networks" (updated 2026-08) and Buffer's "Social Media Image Sizes in 2026" (updated 2026-05). Stories/Reels safe areas come from Meta's consolidated advertising safe-area guidance from 2026-03; TikTok safe areas come from several 2026 specification guides.
 
-⚠️ **中国平台没有公开的开发者规格文档**，本文中国部分来自 2025–2026 年第三方聚合资料，存在口径冲突
-（公众号头条封面 900×383 与 2360×1100 两说；小红书单张 10MB 与 20MB 两说；B站封面 16:9 与 16:10 两说）。
-真要卡死像素前，建议在真机上对朋友圈单图、小红书首图、抖音图文各做一次实拍验证。
+⚠️ **Chinese platforms have no public developer specification documents.** The domestic-platform section uses third-party compilations from 2025–2026 and contains conflicting figures: public-account lead covers are reported as both 900×383 and 2360×1100; Xiaohongshu per-image limits as both 10MB and 20MB; and Bilibili covers as both 16:9 and 16:10. Before committing to exact pixel dimensions, perform an actual-device check for a single WeChat Moments image, a Xiaohongshu first image, and a Douyin image/text post.

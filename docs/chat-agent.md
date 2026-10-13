@@ -1,155 +1,155 @@
-# 聊天 Agent
+# Chat Agent
 
-本文中的根目录 `tests/` 引用与后端验收记录来自本地私有 Python 回归测试，该目录不随公开源码提供，构建和运行应用无需该目录。`frontend/tests/` 与 `desktop/tests/` 继续公开；以下历史验收记录保留原有范围与日期。
+Root-level `tests/` references and backend acceptance records in this document come from local private Python regression tests. That directory is not distributed with the public source and is not needed to build or run the application. `frontend/tests/` and `desktop/tests/` remain public; historical acceptance records below retain their original scope and dates.
 
-## 检索方式与续页（2026-10-09）
+## Retrieval Modes and Pagination (2026-10-09)
 
-`search_messages` 和计划检索分支新增 `retrieval_mode: keyword | hybrid`，新查询默认 `keyword`。原词、编号、金额用关键词；模糊描述用混合检索；涉及指代、前提或状态变化时补读 `read_context`。工具记录显示请求模式与实际模式。概览、完整分析、精确统计沿用既有流程，搜索命中仅作为 `search_only` 证据。
+`search_messages` and the planned-retrieval branch add `retrieval_mode: keyword | hybrid`; new queries default to `keyword`. Use keyword search for exact wording, identifiers, and amounts; hybrid retrieval for vague descriptions; and supplement with `read_context` when references, premises, or state changes matter. Tool records show requested and actual modes. Overview, complete analysis, and exact statistics retain their existing flows, with search hits treated only as `search_only` evidence.
 
-发送人条件在 SQL 分页前应用。查询身份和混合检索票据保存在当前任务 workspace，绑定任务版本及完整查询身份；混合翻页保持同一候选集合，关键词继续用 OFFSET。Agent 续页必须先有本次查询的首页身份；遗漏或改变混合查询的模式也会明确要求重新开始，保留已有证据。索引未就绪及推理失败显示工具错误，不会返回假零命中或自动切换模式。旧分支缺少模式字段时按原有混合检索解释，身份无法确认的旧续页失效。派生 FTS 的升级、取消及性能验证方法见 [本地语义检索](local-semantic-search.md#agent-检索与派生索引2026-10-09)。
+Sender conditions are applied before SQL pagination. Query identity and hybrid-retrieval tickets are saved in the current task workspace, bound to the task version and complete query identity. Hybrid pagination preserves the same candidate set; keyword pagination continues to use OFFSET. Agent pagination requires the first-page identity of the current query. Omitting or changing a hybrid query's mode explicitly requires restarting while retaining existing evidence. An unready index or inference failure produces a tool error, without false zero hits or automatic mode switching. Old branches without a mode field retain their original hybrid interpretation; old pagination whose identity cannot be confirmed becomes invalid. For derived FTS upgrades, cancellation, and performance verification, see [Local Semantic Search](local-semantic-search.md#agent-retrieval-and-derived-indexes-2026-10-09).
 
-## 独立 AI 助手（2026-10-07）
+## Standalone AI Assistant (2026-10-07)
 
-侧栏「AI 助手」打开 `/agent`，无需先选联系人。模型、API 地址、密钥、推理能力和用量沿用现有「设置 → AI 服务」；未配置模型会明确提示并提供设置入口。聊天页右侧的原助手继续保留。
+The sidebar's "AI assistant" opens `/agent` without selecting a contact first. Model, API address, key, reasoning capabilities, and usage reuse "Settings → AI services". Missing model configuration produces an explicit message and settings entry point. The existing assistant on the chat page's right side remains available.
 
-- 首页居中输入，开始对话后输入区位于底部。回答、过程、补充要求、停止和继续复用现有组件及 DeepAgents 链路。
-- `@聊天` 默认为当前微信账号的所有可读私聊和群聊；可搜索、多选。选中的真实会话 ID 是服务器读取边界，模型不能扩大范围。
-- 每个独立 AI 对话的范围固定。改变范围会进入新对话并保留输入草稿，下次发送时创建线程；旧历史、原文和笔记保留，但不会带入新范围。运行中需先停止才能改变范围。
-- 历史只显示独立入口创建的对话，支持搜索、切换、重命名和删除；打开历史恢复其范围。账号及聊天侧栏的草稿、当前对话分开保存。
-- 点击引用可预览原文和前后文，再定位到聊天。定位失败显示错误；引用跳转不自动打开聊天助手，任务通知仍保留原行为。
+- The initial input is centered and moves to the bottom after conversation begins. Answers, process display, supplemental requirements, stopping, and continuing reuse existing components and the DeepAgents path.
+- `@Chats` defaults to all readable private and group chats in the current WeChat account, with search and multiple selection. Selected actual conversation IDs are the server's read boundary; the model cannot expand it.
+- Each standalone AI conversation has a fixed scope. Changing scope enters a new conversation while retaining the input draft; the next send creates its thread. Old history, originals, and notes remain but do not enter the new scope. Stop an active run before changing scope.
+- History lists only conversations created through the standalone entry point, with search, switching, renaming, and deletion. Opening history restores its scope. Account and chat-sidebar drafts and current conversations are saved separately.
+- Clicking a citation previews the original and surrounding context, then navigates to the chat. Navigation failures show errors. Citation navigation does not automatically open the chat assistant; task notifications retain their existing behavior.
 
-接口复用 `/api/ai/agent`：创建线程新增 `origin`（默认 `chat`）和 `chat_scope`。独立入口传 `origin: "agent"`、`username: ""`；`chat_scope: null` 代表全账号，非空 ID 列表代表所选聊天。空列表、重复 ID、不属于账号或不可读的会话会报错。列表可传 `origin=agent`；不传保持原行为，缺少字段的旧记录归为 `chat`。独立范围不可通过 PATCH 修改。每轮运行和子任务保存独立范围快照，不使用工具会更新的 `thread.scope` 作为读取授权。
+The interface reuses `/api/ai/agent`: thread creation adds `origin` (default `chat`) and `chat_scope`. The standalone entry sends `origin: "agent"` and `username: ""`; `chat_scope: null` means the entire account, and a nonempty ID list means selected chats. Empty lists, duplicate IDs, conversations outside the account, and unreadable conversations raise errors. Lists can pass `origin=agent`; omission retains existing behavior, and old records lacking the field are classified as `chat`. Standalone scopes cannot be changed through PATCH. Each run and subtask saves an independent scope snapshot rather than using tool-updated `thread.scope` as read authorization.
 
-继续使用已有关键词及语义检索，沿用覆盖与失败说明；不重建索引、不新增依赖。本轮没有接入 Relink 运行时、上传、跨对话长期记忆或对外 Agent API。
+Existing keyword and semantic retrieval, coverage explanations, and failure explanations remain in use, without rebuilding indexes or adding dependencies. This change does not introduce Relink runtime integration, uploads, long-term memory across conversations, or an external Agent API.
 
-### 本轮验证
+### Verification for This Change
 
-- 后端：新增 `tests/test_ai_standalone_agent.py` 覆盖范围、账号隔离、历史兼容、继续/重启/子任务继承、新线程上下文隔离及资料/上下文/媒体越界拒绝；运行了相关 Agent、历史、模型执行、范围和 SSE 回归。自动测试使用隔离存储和受控响应。
-- 前端：`npm test` 通过（Node 98 项、Vitest 850 项）；`npm run generate` 成功生成含 `/agent` 的 34 个路由。已有构建警告仍在，未把警告当作本轮功能错误处理。
-- 浏览器：真实组件配合合成接口，检查 1440px、900px、420px、深浅色、空态/运行/完成/失败、范围键盘操作、历史列表和来源预览。通过 Chrome 组合输入协议验证中文确认键不发送，不代表 Windows 原生输入法及桌面安装包已完成验收。
-- 真实模型：复用当前选择的 Xiaomi MiMo `mimo-v2.6-pro`，在独立目录中读取 2 个虚构聊天的 13 条消息。跨聊天改期查找、限定活动时间线、同线程结清追问共 3 项通过；最终成功轮次共 9 次 API 调用，输入 45,740 / 输出 2,340 Token。前期验收适配器缺少接口的一次失败另产生 2 次调用，输入 6,470 / 输出 175 Token，不计入上述成功轮次数值。回答与引用已逐条核对；此结果不代表大规模私人聊天召回或真实微信操作验收。
+- Backend: added `tests/test_ai_standalone_agent.py` covering scopes, account isolation, historical compatibility, continue/restart/subtask inheritance, new-thread context isolation, and rejection of out-of-scope material/context/media. Related Agent, history, model execution, scope, and SSE regressions were run. Automated tests use isolated storage and controlled responses.
+- Frontend: `npm test` passed (98 Node tests and 850 Vitest tests); `npm run generate` successfully generated 34 routes, including `/agent`. Existing build warnings remain and were not treated as errors in this feature.
+- Browser: real components with synthetic APIs checked 1440px, 900px, 420px, light/dark themes, empty/running/completed/failed states, scope keyboard operation, history lists, and source previews. Chrome's composition-input protocol confirmed that Chinese composition confirmation does not send; this does not establish acceptance of Windows native input methods or desktop installers.
+- Real model: reused the selected Xiaomi MiMo `mimo-v2.6-pro`, reading 13 messages from 2 fictional chats in an independent directory. All 3 cases passed: cross-chat rescheduling lookup, a scoped activity timeline, and a same-thread settlement follow-up. Final successful rounds made 9 API calls with 45,740 input / 2,340 output Tokens. An earlier failed acceptance adapter missing an interface caused another 2 calls with 6,470 input / 175 output Tokens, excluded from the successful-round totals. Answers and citations were checked individually; these results do not establish large-scale private-chat recall or real WeChat operation acceptance.
 
-可复现脚本：`tools/verify_standalone_agent.py --database <现有AI数据库> --output <新的隔离目录>`，由项目 Python 环境运行。它只读当前模型配置，聊天来自虚构内存样本；凭据只在内存使用，不写入验收目录。脚本的越界文字检查是完整样本文字匹配，需结合服务器范围测试及人工回答核查，不能单独证明所有摘要片段均无泄漏。
+Reproduction script: `tools/verify_standalone_agent.py --database <existing-AI-database> --output <new-isolated-directory>`, run through the project's Python environment. It reads only current model configuration; chats come from fictional in-memory samples. Credentials are used only in memory and are not written to the acceptance directory. The script's out-of-scope text check matches complete sample text and must be combined with server-scope tests and manual answer review; it alone cannot prove that every summary fragment is free of leakage.
 
-浏览器合成入口：`frontend/tests/fixtures/agent-standalone.html`（已有 Vite acceptance 配置）。本轮结果和截图保存在本地 `.work/standalone-agent/`，不作为待发布用户数据。
+Synthetic browser entry: `frontend/tests/fixtures/agent-standalone.html` (existing Vite acceptance configuration). Results and screenshots are stored locally in `.work/standalone-agent/`, rather than as user data intended for publication.
 
-## 既有说明与历史记录
+## Existing Documentation and Historical Records
 
-当前引擎以 [DeepAgents v3 架构与迁移说明](deepagents-migration.md) 为准。以下内容保留作为迁移前的历史说明，其中旧检查点、固定执行阶段和旧任务继续行为不再适用于新运行。旧版 Mac 验收记录不代表本轮通过。
+The current engine is described in [DeepAgents v3 Architecture and Migration](deepagents-migration.md). The following content remains as pre-migration historical documentation; old checkpoints, fixed execution stages, and old-task continuation behavior no longer apply to new runs. Earlier Mac acceptance does not mean this change has passed on Mac.
 
-聊天页右上角 AI 默认进入对话模式；原消息总结、自动任务、关注提醒位于「工具」。侧栏和大视图共享状态。
+AI at the top right of the chat page enters conversation mode by default; original message summaries, automatic tasks, and attention alerts are under "Tools". The sidebar and large view share state.
 
-## 使用
+## Usage
 
-- AI 对话属于当前微信账号，切换微信聊天不切换 AI 对话；全部旧历史统一列出，保留原回答、来源与继续能力。
-- 可连续提问，处理中发送的内容记为补充，在下一次动作前应用；输入法确认键不发送，Shift+Enter 换行。
-- 默认搜索全部可读取历史；人物、会话和日期是每轮查询条件。追问保留仍有效的条件，用户可以明确取消。不再使用读取范围选择或固定/跟随控件。
-- 历史可以新建、重命名和删除；与微信聊天记录分开保存，账号之间隔离。
-- Agent 不再设置工具调用、模型请求、媒体分析数量和整轮运行时间额度，历史额度配置也不再生效。AI 服务设置只保留模型服务、本地检索和用量记录。
-- 手动停止或应用重启后，点击继续查找会保留已有证据与用量记录。缓存页无需重复调用视觉模型。
-- 用量关联每轮运行 ID；未返回的上游用量标为未知，不估算费用。长对话的背景压缩也计入模型用量。
-- 模型按服务配置分组，原生思考等级仅在能力确认后展示。新提问使用当前选择；运行中补充及停止后继续保持启动配置。运行中 Enter 提交补充，主按钮始终停止。
+- AI conversations belong to the current WeChat account; switching WeChat chats does not switch AI conversations. All old history is listed together, retaining original answers, sources, and continuation capability.
+- Questions may be consecutive. Content sent during processing is recorded as a supplement and applied before the next action. Input-method confirmation does not send; Shift+Enter inserts a newline.
+- Search defaults to all readable history. People, conversations, and dates are per-turn query conditions. Follow-ups retain valid conditions, which the user may explicitly cancel. Read-scope selection and fixed/follow controls are no longer used.
+- History supports creation, renaming, and deletion; it is stored separately from WeChat history and isolated between accounts.
+- The Agent no longer limits tool calls, model requests, media-analysis counts, or total run duration; historical quota settings no longer apply. AI service settings retain only model services, local retrieval, and usage records.
+- After manual stop or application restart, "Continue searching" retains existing evidence and usage records. Cached pages do not require another vision-model call.
+- Usage is associated with each run ID. Missing upstream usage is marked unknown without cost estimates. Background compaction of long conversations also counts toward model usage.
+- Models are grouped by service configuration, and native thinking levels appear only after capabilities are confirmed. New questions use the current selection; supplements during execution and continuation after stop retain the startup configuration. Enter submits a supplement during execution; the main button always stops.
 
-## 数据与接口
+## Data and Interfaces
 
-业务数据位于现有 output/ai/ai.sqlite3，使用 agent_thread、agent_run 类型。旧人工额度设置接口已移除，历史设置不参与执行。阶段检查点位于 agent_checkpoints.sqlite3，节点只保存运行标识；密钥执行时解析，不进入检查点。
+Business data resides in existing output/ai/ai.sqlite3, using agent_thread and agent_run types. Old manual-quota settings endpoints have been removed, and historical settings do not affect execution. Stage checkpoints reside in agent_checkpoints.sqlite3, with nodes storing only run identifiers. Keys are resolved at execution and do not enter checkpoints.
 
-`/api/ai/agent` 提供 threads、threads/{id}/messages、runs/{id}、runs/{id}/stop、runs/{id}/continue 和 events。消息带客户端 request_id 去重；运行中再次发送进入同一任务并增加补充版本。
+`/api/ai/agent` provides threads, threads/{id}/messages, runs/{id}, runs/{id}/stop, runs/{id}/continue, and events. Messages carry client request_id values for deduplication; sending again during execution enters the same task and increments the supplemental version.
 
-SSE 使用稳定事件 ID，支持 Last-Event-ID 重连，前端同时定期查询。完全退出后未完成任务标记为中断，不自动产生新的模型费用。
+SSE uses stable event IDs and supports Last-Event-ID reconnection; the frontend also queries periodically. After complete exit, unfinished tasks are marked interrupted without automatically incurring new model costs.
 
-只读工具封装既有消息搜索、范围分页、消息上下文和媒体定位，不提供 SQL、任意文件、Shell 或消息发送能力。查询参数由后端限制到已授权账号、会话与时间范围。
+Read-only tools wrap existing message search, scope pagination, message context, and media lookup, without SQL, arbitrary files, Shell, or message-sending capabilities. Backend query parameters are restricted to authorized accounts, conversations, and time scopes.
 
-具体信息搜索复用关键词与语义混合检索；语义索引不可用时退回关键词并展示原因。索引可能落后于实时聊天；回答前对涉及的近期会话补读最近消息，分页未完成或数据源不可用时向模型提供覆盖缺口。未解析图片中的文字不承诺可以直接检索。
+Specific-information searches reuse hybrid keyword/semantic retrieval; unavailable semantic indexes fall back to keywords with the reason displayed. Indexes may lag behind live chats. Before answering, recent messages are reread for relevant recent conversations; incomplete pagination or unavailable data sources provide coverage gaps to the model. Direct search of text in unparsed images is not guaranteed.
 
-## 验证
+## Verification
 
-- 后端测试：`tests/test_ai_agent.py`，以及原 AI 服务、接口和供应商测试。
-- 前端测试：`frontend/tests/chat-agent.test.js`，以及原 AI 面板和自定义选择器测试。
-- 自动测试全部使用模拟响应；真实模型验收应使用用户指定的问题和会话，查看本次用量记录。
+- Backend tests: `tests/test_ai_agent.py`, plus existing AI service, endpoint, and provider tests.
+- Frontend tests: `frontend/tests/chat-agent.test.js`, plus existing AI panel and custom-selector tests.
+- All automated tests use simulated responses. Real-model acceptance should use user-specified questions and conversations and inspect the current usage record.
 
-## 执行对话流与协议修复
+## Execution Conversation Flow and Protocol Fixes
 
-工具调用按时间显示，展开可查看范围、页码位置和覆盖情况；关键发现穿插简短进展说明。过程默认保留紧凑记录，完成和滚动不会自动收起；用户可手动折叠，流式更新保留选择。历史每轮可以重新加载过程。
+Tool calls appear chronologically; expanding them shows scope, page position, and coverage. Brief progress explanations accompany key findings. A compact process record remains visible by default, without automatic collapse on completion or scrolling. Users may collapse it manually, and streaming updates preserve that choice. The process can be reloaded for each historical turn.
 
-决策根据 models.dev 的工具能力选择工具调用或 JSON 动作协议；未知能力沿用运行时探测。上游明确拒绝强制工具选择时改用 JSON 动作协议；每次决策最多三次自动纠错，所有请求记录实际用量，不设置整轮额度。消息 offset 始终表示消息位置，会话选择单独使用 conversation_offset，避免遗漏后续页面。
+Decisions choose native tool calls or a JSON action protocol according to models.dev tool capabilities; unknown capabilities retain runtime probing. Explicit upstream rejection of forced tool selection switches to the JSON action protocol. Each decision allows at most three automatic corrections, with actual usage recorded for every request and no total-run quota. Message offset always denotes message position; conversation selection uses a separate conversation_offset to avoid missing later pages.
 
-工具成功后保存证据、待执行队列和查询缓存，重试从失败步骤继续。响应先提取 Token 用量再做格式与来源校验，失败审计保留分类、字段路径、结束原因和诊断 ID，不保存原始响应或密钥。旧记录未知用量不回填。
+Successful tools save evidence, pending queues, and query caches; retries continue from the failed step. Responses extract Token usage before format/source validation. Failed audits retain category, field path, finish reason, and diagnostic ID without raw responses or keys. Unknown usage in old records is not backfilled.
 
-运行接口增加 timeline、error_info、coverage_warnings；对话接口增加 runs 摘要。过程记录带 id、seq、revision，SSE 与查询快照按记录修订号合并。工具源不可用和未完成分页都会显示覆盖说明。
+Run endpoints add timeline, error_info, and coverage_warnings; conversation endpoints add runs summaries. Process records have id, seq, and revision, and SSE/query snapshots merge by record revision. Unavailable tool sources and incomplete pagination both show coverage explanations.
 
-2026-09-08 真实验证使用用户指定的同一会话及“最近讨论了哪些重要的事？”：旧任务恢复完成，新增 5 次请求，已知输入 104,579 / 输出 11,711 Token（1 次兼容请求未返回用量）；新对话从头执行完成，读取 92 条消息，用时约 51 秒，6 次请求，已知输入 21,806 / 输出 3,422 Token（1 次未返回用量）。恢复任务沿用原 200 条证据。复现与兼容调试请求也关联原任务审计；这些数值不包含旧任务中无法追补的未知用量，不估算费用。
-# 回答依据与检索标记（2026-09-08）
+Real verification on 2026-09-08 used the same user-specified conversation and the question "What important things have been discussed recently?": the old task resumed to completion with 5 new requests and known usage of 104,579 input / 11,711 output Tokens (1 compatibility request returned no usage). A new conversation completed from the start, reading 92 messages in approximately 51 seconds with 6 requests and known usage of 21,806 input / 3,422 output Tokens (1 returned no usage). The resumed task retained its original 200 evidence messages. Reproduction and compatibility-debug requests were also associated with the original task audit. These figures exclude unknown usage that cannot be recovered from the old task, and no costs are estimated.
 
-AI 助手的搜索步骤显示实际返回的检索方式：关键词与语义混合检索，或退回关键词检索及覆盖说明。展开步骤可看本页两路命中数，同一消息可同时计入两路；聊天搜索结果也显示双路匹配标记。
+# Answer Evidence and Retrieval Markers (2026-09-08)
 
-每轮“回答依据”分别展示已找到的消息、本次回答请求包含的原文来源、回答实际标注的有效引用。展开可查看原文摘要、检索来源、是否放入请求及引用状态，并定位原消息。来源按 20 条展开以控制长列表渲染量。
+AI assistant search steps display the actual returned retrieval method: hybrid keyword/semantic search or keyword fallback with coverage explanations. Expanding a step shows this page's hit counts from both paths; the same message may count in both. Chat search results also display dual-match markers.
 
-后端在组装回答请求时按统一输入预算保存原文来源清单，调用成功后标记完成；调用未完成、上下文遗漏和旧数据缺少追踪记录均明确说明。原先的 90,000 字符拼接方式已由下面的分段处理替代。来源清单区分原文和分段摘要；它证明请求包含来源，不证明模型一定采纳内容。后续读取上下文保留此前的关键词／语义命中信息。
+Each turn's "Answer evidence" separately shows found messages, original sources included in the current answer request, and valid citations actually used in the answer. Expand to see original excerpts, retrieval sources, whether they entered the request, and citation status, and to locate original messages. Sources expand in groups of 20 to bound long-list rendering.
 
-验收：相关 Agent 后端 29 项、Vue 21 项回归通过。使用 `frontend/tests/fixtures/agent-evidence.html` 的虚构资料检查真实组件展开、检索标记、引用状态及布局，不调用云端模型。
+When constructing an answer request, the backend saves the original-source list under the unified input budget and marks it complete after the call succeeds. Unfinished calls, context omissions, and old data lacking tracking records are explained explicitly. The former 90,000-character concatenation method has been replaced by the segmentation below. Source lists distinguish originals from segment summaries; they prove request inclusion, not that the model necessarily used the content. Subsequent context reads retain earlier keyword/semantic hit information.
 
-## 大范围分析与当前对话上下文（2026-09-09）
+Acceptance: 29 related Agent backend and 21 Vue regressions passed. Fictional material in `frontend/tests/fixtures/agent-evidence.html` checked real component expansion, retrieval markers, citation states, and layout, without cloud-model calls.
 
-模型解析对象、条件和时间，填写本机时区的 Unix 秒。后端验证起止顺序、截止时间与授权会话，在面板显示实际查询范围。没有有效日期时不会自行替换成固定的三天或七天。
+## Large-Scope Analysis and Current Conversation Context (2026-09-09)
 
-处理方式包括具体信息检索、概览、时间线、精确统计和完整提取。具体信息复用关键词与语义混合检索，可继续读原文前后文。其他四种方式由程序遍历授权范围内的所有分页；模型不能通过提前选择回答跳过未分析分页。统计按消息身份去重后由 SQLite 计算，提供每日总数、发言人排行及每日各会话发言人明细；语义提取始终称为“分析结果”。
+The model parses subjects, conditions, and time, filling Unix seconds in the local time zone. The backend validates start/end order, cutoff time, and authorized conversations, then displays the actual query scope in the panel. Missing valid dates do not automatically become fixed three-day or seven-day ranges.
 
-分段按请求预算拆分消息与附件文字，保存原文字符位置；相邻段带少量仅作背景的重叠内容。每段提取带来源的发现，全部发现单独存档，再逐层合并，较长的合并输入会继续分组。疑似冲突先取回对应来源前后文，仍不能确定的事项继续标注待核实。完整遍历不代表模型的语义提取绝无遗漏。
+Processing modes include specific-information retrieval, overview, timeline, exact statistics, and complete extraction. Specific-information retrieval reuses hybrid keyword/semantic search and can read surrounding original context. The program traverses every page in the authorized scope for the other four modes; the model cannot answer early to skip unanalyzed pages. SQLite computes statistics after deduplication by message identity, providing daily totals, speaker rankings, and daily conversation/speaker details. Semantic extraction is always called "Analysis results".
 
-运行 JSON 仅保存分页位置、当前分段、合并层级和覆盖状态。`agent_material` 保存任务原文与会话、日期、来源索引，`agent_piece` 保存带版本的分段、发现、合并结果、长输入片段、工具结果和旧过程记录。分页器复用同一来源游标，去重编号使用固定缓存的磁盘临时 SQLite 库。消息正文和中间结果不随每次状态更新重新写入。
+Segments split messages and attachment text by request budget while retaining original character positions. Adjacent segments include a small overlap used only as background. Each segment extracts findings with sources; all findings are archived separately, then merged in layers, with long merge inputs grouped further. Suspected conflicts first retrieve the corresponding source context; unresolved points remain marked for verification. Complete traversal does not guarantee that semantic extraction has no omissions.
 
-每段和每个合并步骤完成后保存检查点。停止、重启或上游失败时，继续操作从未完成部分恢复；已完成分段不再调用模型。用户修改问题或范围会产生新版本，旧版本不参与新分析。缩小范围时同时清理不符合条件的原文，所有资料接口校验账号、会话范围修订号和任务版本。新建 AI 对话不会带入其他对话背景，没有新增跨对话长期记忆。
+Run JSON stores only page position, current segment, merge level, and coverage state. `agent_material` stores task originals with conversation, date, and source indexes; `agent_piece` stores versioned segments, findings, merge results, long-input pieces, tool results, and old process records. Paginators reuse the same source cursor; deduplication identifiers use a disk-backed temporary SQLite database with a fixed cache. Message bodies and intermediate results are not rewritten on every state update.
 
-当前对话按体积整理较早消息，保留目标、对象、日期、纠正和引用；原始用户消息、助手消息仍在本地。“第二件事”依据近期回答和当前目标理解，“那上周呢”由模型更新日期。超长用户输入先分段提取与合并要求，前后端均限制为 1 MiB UTF-8；本次不新增上传入口。
+Each completed segment and merge step saves a checkpoint. After stopping, restarting, or upstream failure, continuation resumes unfinished parts without model calls for completed segments. Changes to the question or scope create a new version, excluding old versions from new analysis. Narrowing scopes also removes originals that no longer qualify; all material endpoints validate account, conversation-scope revision, and task version. New AI conversations do not inherit other conversations' background, and no long-term cross-conversation memory has been added.
 
-上下文窗口、输出能力与图片能力通过 [models.dev 公共 API](https://models.dev/api.json) 按服务商和模型 ID 匹配，自定义接口仅接受唯一的精确同名匹配，界面标明原厂参考参数。获取上游模型列表时，也读取其中明确提供的上下文、输出、模态和能力字段并在本机缓存；缺少的字段由 models.dev 补充。优先级为：手动设置 > 上游返回 > models.dev。自动填充后仍可编辑上下文、图片开关，以及展开项中的最大输出、工具、结构化输出等能力；手动值单独保存，刷新和重新打开均不覆盖，可点击“恢复自动识别”清除。切换模型或接口后重新识别，不沿用前一个模型的手动值。
+Earlier messages in the current conversation are organized by volume while retaining goals, subjects, dates, corrections, and citations; original user and assistant messages remain local. "The second thing" is understood from recent answers and the current goal; "What about last week?" lets the model update dates. Oversized user inputs first segment and merge requirements. Both frontend and backend enforce 1 MiB UTF-8, and this change adds no upload entry point.
 
-模型配置展示输入／输出模态、工具、推理、结构化输出、温度、附件、开放权重、价格、日期与供应商 Logo，并标注参数来源。目录缓存一天，离线沿用上次成功数据；未收录模型也允许手动配置。
+Context windows, output capability, and image capability are matched by provider and model ID through the [models.dev public API](https://models.dev/api.json). Custom endpoints accept only a unique exact-name match, with the UI identifying original-provider reference parameters. Fetching upstream model lists also reads explicitly supplied context, output, modality, and capability fields and caches them locally; missing fields are supplemented by models.dev. Priority: manual settings > upstream response > models.dev. After automatic filling, context, image capability, and expanded maximum-output/tool/structured-output capabilities remain editable. Manual values are saved separately and survive refresh/reopening; "Restore automatic detection" clears them. Changing model or endpoint triggers detection again without retaining the previous model's manual values.
 
-不再使用整轮可配置的 12,000 输入额度。单次请求根据模型窗口预留输出与封装空间；未知窗口以 32,768 字节作为初始分段大小，并在上游报告窗口不足时缩小。未知分词器时用 UTF-8 字节上界保守计量文本；图片独立预留空间，不把 Base64 当成文本 Token。实际 Token 仍以服务端用量为准。上游明确报告上下文不足或分段输出截断时缩小未完成分段；容量不足时保留进度并明确报错。
+Model configuration shows input/output modalities, tools, reasoning, structured output, temperature, attachments, open weights, pricing, dates, and provider logos, with parameter provenance. Catalogs are cached for one day and retain the last successful data offline; unlisted models may still be configured manually.
 
-`GET /runs/{id}/materials` 接受 `kind=sources|findings|statistics`、`offset`、`limit`、`query` 和 `version`；`GET /runs/{id}/materials/{source}` 按字符位置读取原文。Agent 也可以使用 `search_material`、`read_material` 和 `read_results` 回查。当前面板通过回答引用和阶段笔记摘要展示可核对的信息。实时源失败、快照限制、范围未完成和旧记录覆盖未知均单独说明。
+The configurable 12,000-input total-run quota is no longer used. Each request reserves output and wrapper space within the model window. Unknown windows start with 32,768-byte segments, reduced if upstream reports insufficient context. For unknown tokenizers, UTF-8 byte upper bounds conservatively meter text; images reserve space separately rather than counting Base64 as text Tokens. Actual Tokens remain based on server usage. Explicit upstream context-limit errors or truncated segment outputs shrink unfinished segments; insufficient capacity retains progress and raises an explicit error.
 
-自动验收见 `tests/test_ai_agent_context.py`、`tests/test_ai_message_pages.py`，覆盖多会话、多页、范围修改、原文引用、附件长文本、重启恢复、超限缩小、8K 窗口、接口隔离及十万条合成消息。前端读取摘要的展示回归见 `frontend/tests/agent-run-reading-summary.test.js`。十万条流式读取包含重复消息，测试断言 Python 分配峰值低于 8 MiB、首批读取后的进程常驻内存增长低于 32 MiB；十万条原文落库另与确定性计数基准对照。这些数值是测试输入下的工作集约束，不代表所有附件解析库的内存上限。
+`GET /runs/{id}/materials` accepts `kind=sources|findings|statistics`, `offset`, `limit`, `query`, and `version`; `GET /runs/{id}/materials/{source}` reads originals by character position. The Agent can also look up material through `search_material`, `read_material`, and `read_results`. The panel currently exposes verifiable information through answer citations and stage-note summaries. Live-source failures, snapshot limits, unfinished scopes, and unknown coverage in old records are explained separately.
 
-真实验收工具为 `tools/verify_agent_context.py`：读取现有模型配置，在独立状态目录保存任务与用量；支持 `--resume-run` 和连续 `--followup`，不会将密钥复制到验收记录，也不会修改用户的 AI 自动任务。
+Automated acceptance is in `tests/test_ai_agent_context.py` and `tests/test_ai_message_pages.py`, covering multiple conversations/pages, scope changes, original citations, long attachment text, restart resumption, over-limit reduction, 8K windows, endpoint isolation, and one hundred thousand synthetic messages. Frontend reading-summary regressions are in `frontend/tests/agent-run-reading-summary.test.js`. The one-hundred-thousand-message stream includes duplicates; tests assert peak Python allocation below 8 MiB and resident-memory growth below 32 MiB after the first batch. Storage of one hundred thousand originals is also compared with a deterministic count baseline. These figures constrain the working set for test inputs, not every attachment parser's memory usage.
 
-### 本次验收结果
+Real acceptance uses `tools/verify_agent_context.py`, which reads existing model configuration and saves tasks/usage in an independent state directory. It supports `--resume-run` and consecutive `--followup`, without copying keys into acceptance records or modifying the user's automatic AI tasks.
 
-- 相关后端回归 123 项、前端回归 54 项通过；最终计数展示调整另通过 14 项上下文回归，前端生产构建通过。
-- 当前配置模型完成真实群聊 228 条消息的概览，以及沿用同一日期范围的连续追问。概览保存 19 个分段、50 条分析发现；追问保存 11 个分段、38 条分析发现。列表回答由程序标明完整结果数量，再展示重点摘要，避免把摘要中的几项当成全部结果。
-- 两轮资料及来源元数据分别为 68,220 / 68,023 UTF-8 字节（不含媒体字段），均超过默认单次 12,000 输入预算；所有分页完成后才生成回答。回答中的 20 / 25 个不同引用均存在于对应任务资料库，时间位于实际查询范围内。
-- 测试中的实时源不可用，因此实际使用已解密快照；该限制在覆盖状态和回答中展示。没有将快照覆盖冒充实时完整覆盖。
-- 调试、失败、兼容重试、上下文整理、恢复与最终回答刷新均计入原任务审计：累计 79 次模型调用，已知输入 124,456 / 输出 225,201 Token，另有 2 次未返回用量。上述数据包含修复过程，不作为正常单次问题的费用或耗时基准。
+### Acceptance Results
 
-真实记录保存在独立的 `tmp/agent-context-live-20260909/verification.json`。记录核对覆盖范围、引用存在性和用量一致性，不将这些程序检查当作语义提取绝无遗漏的证明。
+- 123 related backend and 54 frontend regressions passed; the final count-display adjustment also passed 14 context regressions, and the frontend production build passed.
+- The currently configured model completed an overview of 228 real group-chat messages and a consecutive follow-up retaining the same date scope. The overview saved 19 segments and 50 findings; the follow-up saved 11 segments and 38 findings. List answers show the complete result count programmatically before presenting highlights, so a few summarized items are not mistaken for all results.
+- Material and source metadata for the two rounds totaled 68,220 / 68,023 UTF-8 bytes (excluding media fields), both above the default 12,000-input single-request budget. Answers were generated only after all pages finished. The answers' 20 / 25 distinct citations all existed in their task material stores and fell within actual query times.
+- The live source was unavailable during testing, so decrypted snapshots were used. This limitation appeared in coverage state and answers; snapshot coverage was not represented as complete live coverage.
+- Debugging, failures, compatibility retries, context organization, resumption, and final-answer refreshes were audited under the original tasks: 79 total model calls, known usage of 124,456 input / 225,201 output Tokens, plus 2 calls without returned usage. These data include the repair process and are not a normal single-question cost or duration benchmark.
 
-### 对话界面与侧栏宽度
+Real records are saved independently in `tmp/agent-context-live-20260909/verification.json`. Checks cover scope, citation existence, and usage consistency; these program checks do not prove absence of semantic-extraction omissions.
 
-当前使用 AI Elements Vue 的 Conversation、ConversationContent、Message、ChainOfThought 和 ContextIcon 源码组件，适配现有 Python/SSE 状态。消息按 ID 更新；只有一个滚动管理入口，恢复阅读位置使用库公开的真实滚动节点。Tailwind 已迁移到 4。
+### Conversation UI and Sidebar Width
 
-源码固定提交为 `ad4818f6081a2fe6e5b7bb53cebc5a66d9a24148`，来源和许可证见 `frontend/components/ai-elements/README.md`。项目保留实际使用的 AI Elements Vue 按需组件。
+The UI currently uses AI Elements Vue source components Conversation, ConversationContent, Message, ChainOfThought, and ContextIcon, adapted to existing Python/SSE state. Messages update by ID; there is one scrolling-management entry point, and reading-position restoration uses the library's public actual scroll node. Tailwind has migrated to 4.
 
-布局参考 Codex：用户消息采用紧凑圆角气泡，回答直接排版；执行过程按时间顺序显示工具调用和进展。工具图标与正文左对齐，名称及展开详情缩进 26px；相邻同工具、同会话、同查询和范围的调用合并为一行，展开仍可分别查看结果、耗时和复用情况。用量与覆盖情况放在回答下方；失败、暂停及未读取资料仍明确展示。默认保留紧凑过程，完成或滚动不改变用户的展开选择。
+Source is pinned to commit `ad4818f6081a2fe6e5b7bb53cebc5a66d9a24148`; see `frontend/components/ai-elements/README.md` for provenance and license. The project retains the AI Elements Vue components actually used, imported on demand.
 
-侧栏左边缘支持鼠标或触摸拖动、本地记忆宽度、双击恢复 440 像素；聚焦分隔条后使用左右方向键调整，Shift 加速，Home/End 调到边界，Enter 恢复默认。宽度根据窗口及其他侧栏自动收敛，展开大视图后收起可恢复原宽度。测试见 `assistant-thread.test.js`、`agent-panel-resize.test.js` 和现有 Agent 交互测试；预览页 `tests/fixtures/agent-redesign.html` 支持无模型调用的流式演示。
+Layout follows Codex: user messages use compact rounded bubbles, answers use direct text layout, and execution shows tools and progress chronologically. Tool icons align left with the body; names and expanded details are indented 26px. Adjacent calls with the same tool, conversation, query, and scope merge into one row, while expanded results, duration, and reuse remain individually visible. Usage and coverage appear below answers; failure, pause, and unread material remain explicit. The compact process remains by default, and completion/scrolling does not alter the user's expansion choice.
 
+The sidebar's left edge supports mouse/touch dragging, locally remembered width, and double-click reset to 440 pixels. With the separator focused, left/right arrows adjust width, Shift accelerates, Home/End reach boundaries, and Enter restores the default. Width adjusts to the window and other sidebars; collapsing the large view restores the original width. Tests are in `assistant-thread.test.js`, `agent-panel-resize.test.js`, and existing Agent interaction tests. Preview `tests/fixtures/agent-redesign.html` supports streaming demonstrations without model calls.
 
-大视图显示当前账号的 AI 会话列表，支持搜索、新建、切换、重命名、删除和加载失败重试；删除需要确认。草稿按 AI 对话保存，旧会话的聊天归属只作兼容信息，不限制新问题的读取权限。异步读取按账号和请求版本隔离。
+The large view shows AI conversations for the current account, with search, creation, switching, renaming, deletion, and load-failure retry; deletion requires confirmation. Drafts are saved by AI conversation. Old conversations' chat association is compatibility information only and does not limit read authorization for new questions. Asynchronous reads are isolated by account and request version.
 
-本次界面与 Vue 接入验收见 `docs/ai-chat-ui-validation.md`。
+See `docs/ai-chat-ui-validation.md` for this UI and Vue integration acceptance.
 
-## Agent 动态读取窗口
+## Agent Dynamic Read Window
 
-新版按实际请求剩余预算读取，时间区间为左闭右开，固定截止时间与时区，程序生成稳定续读游标。区间超限时二分，最小一秒内继续按稳定消息顺序和字符位置分片。未指定会话时，最近 N 条表示所有筛选结果合计 N 条。
+The new version reads according to actual remaining request budget, using half-open time intervals, fixed cutoff time/time zone, and program-generated stable continuation cursors. Oversized intervals are bisected; within a minimum one-second interval, slicing continues by stable message order and character position. Without a specified conversation, the latest N messages means N total across all filtered results.
 
-活跃原文达到约 80% 时整理阶段笔记，目标降到 60% 以下；近期原文和笔记分别以 15% / 20% 为控制目标。笔记、来源和进度同一事务保存成功后才释放活跃原文，原始证据仍存于本地。保存失败、暂停、重启及窗口收缩保留待分析队列。圆环和实际请求共用预算计量，UTF-8 字节是保守估算，不冒充实际 Token；累计模型用量独立审计。
+Active originals are organized into stage notes at approximately 80%, targeting reduction below 60%; recent originals and notes target 15% / 20%, respectively. Active originals are released only after notes, sources, and progress are successfully saved in the same transaction; original evidence remains local. Save failure, pause, restart, and window shrinkage preserve the pending analysis queue. The ring and actual request share budget metering; UTF-8 bytes are conservative estimates, not actual Tokens. Cumulative model usage is audited independently.
 
-以下 10% 分段与 offset 描述仅适用于旧运行检查点的兼容恢复；新任务使用上述持续阅读协议。
+The following 10% segmentation and offset description applies only to compatibility resumption of old-run checkpoints; new tasks use the continuous-reading protocol above.
 
-范围遍历与主动读取均按每页当前容量装批，达到容量前保留下一条给续页；超长单条原文完整保存在本地，再按字符偏移拆分给模型，重叠前文也计入容量。决策和回答请求中的原文证据同样受 10% 资料预算限制，不再固定只候选最近 100 条。最近 N 条的总量约束、会话授权与固定截止时间保持原语义。
+Both scope traversal and proactive reads fill batches to each page's current capacity, retaining the next message for continuation before exceeding it. A single oversized original is stored completely locally, then split by character offset for the model; overlapping preceding context also consumes capacity. Original evidence in decision and answer requests has the same 10% material-budget limit, replacing the fixed candidate set of the latest 100 messages. The latest-N total constraint, conversation authorization, and fixed cutoff retain their original semantics.
 
-工具结果的 `next_offset` 表示实际续页位置，末页为 `null`；模型不得自行固定增加 50 或 100。搜索位置按底层命中数推进，即使个别命中无法规范化也不会反复读取同页。请求发送前检查完整预算；上游窗口不足或分段输出截断时，缩小未完成分段并保留已完成结果与进度。资料容量或最小请求仍无法满足时明确报错，不静默截断来源或正文。
+Tool-result `next_offset` is the actual continuation position, with `null` on the final page; the model cannot arbitrarily add 50 or 100. Search positions advance by underlying hit count even when individual hits cannot be normalized, preventing repeated reads of the same page. Full budget is checked before sending. Upstream context shortages or truncated segment outputs shrink unfinished segments while retaining completed results and progress. If material capacity or even the minimum request remains insufficient, explicit errors replace silent truncation of sources or bodies.
 
-动态分页测试见 `tests/test_ai_agent_reading_budget.py`，另回归现有 Agent 上下文、协议、供应商与流式读取测试。预算、实际条数和缩小原因进入现有诊断日志，不新增聊天正文日志、设置项或数据库迁移。
+Dynamic pagination tests are in `tests/test_ai_agent_reading_budget.py`, alongside existing Agent context, protocol, provider, and streaming-read regressions. Budgets, actual counts, and shrink reasons enter existing diagnostic logs, without new chat-body logs, settings, or database migrations.

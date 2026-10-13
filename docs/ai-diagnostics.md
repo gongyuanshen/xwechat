@@ -1,104 +1,104 @@
-# AI 日志与上线排障
+# AI Logging and Production Troubleshooting
 
-AI 总结、提醒、Agent、本地检索、前端请求和桌面通知的运行诊断写入现有应用日志。默认 INFO 只记录关键节点；逐页、逐段、逐批等正常细节降为 DEBUG，减少长期使用的日志体积。此策略只作用于 AI 诊断入口，不改变其他模块、根 logger 或文件 handler 的日志级别。
+Runtime diagnostics for AI summaries, alerts, Agent, local retrieval, frontend requests, and desktop notifications are written to the existing application log. The default INFO level records only key milestones; normal details for individual pages, segments, and batches use DEBUG to reduce log volume during long-term use. This policy applies only to the AI diagnostic entry point; it does not change the log levels of other modules, the root logger, or file handlers.
 
-## 日志位置与格式
+## Log Location and Format
 
-位置仍是当前 output 下的 `logs/YYYY/MM/DD/DD_wechat_tool.log`，可通过应用的“打开当前日志”打开。连续运行跨零点后，第一条记录切换至当天文件；打开日志时也会检查日期。切换 output 目录、删除后重建目录无需重启。没有新增大小限额、保留天数或自动清理。
+The location remains `logs/YYYY/MM/DD/DD_wechat_tool.log` under the current output directory, accessible through the application's "Open current log" command. When continuous execution crosses midnight, the first record switches to the current day's file; opening the log also checks the date. Switching the output directory or recreating a deleted directory requires no restart. No size limit, retention period, or automatic cleanup has been added.
 
 ```text
-2026-09-09 10:00:00 | INFO | wechat_decrypt_tool.ai.diagnostics | [ai.model.call.finished] 模型调用：步骤结束；运行诊断 {"trace_id":"…","task_id":"…","call_id":"…","status":"success","duration_ms":1200,"usage_known":true}
+2026-09-09 10:00:00 | INFO | wechat_decrypt_tool.ai.diagnostics | [ai.model.call.finished] Model call: step finished; runtime diagnostics {"trace_id":"…","task_id":"…","call_id":"…","status":"success","duration_ms":1200,"usage_known":true}
 ```
 
-关键业务步骤产生 `.started` 与 `.finished`；异常退出记录 `.failed` 或 `.interrupted`。`finished` 表示函数已经返回，应结合 `status` 与最终 `terminal` / `task.state` 判断业务结果，不能仅凭函数返回认定任务成功。下方事件清单同时包含 INFO 关键事件和 DEBUG 详细事件，不代表默认会全部写入文件。
+Key business steps produce `.started` and `.finished`; exceptional exits record `.failed` or `.interrupted`. `finished` means the function has returned. Assess the business outcome using `status` and the final `terminal` / `task.state`; a function return alone does not establish task success. The event list below includes both key INFO events and detailed DEBUG events, so it does not mean every event is written to the file by default.
 
-默认记录范围：
+Default logging scope:
 
-- 保留任务创建、状态变化、执行结束、取消与恢复、配置修改、服务启停、每次模型请求开始和结束（含用量、耗时）、Agent 工具动作，以及通知显示/点击/ACK、SSE 断线与恢复。
-- 保留所有显式 WARNING/ERROR、带异常或失败元数据的事件；详细步骤失败也不会被降级。重复后台故障沿用首次及每分钟汇总。
-- 正常消息读取、附件页、分析段、推理批次、事务包装、缓存、规则未触发、预算逐次消耗、首个流式字符及正常页面导航只记 DEBUG。
-- 索引已提交检查点、模型下载进度、GPU 下载进度按任务及本次执行分别限频，首次立即记录，之后每分钟最多一条 INFO；中间进度仍可在 DEBUG 查看。完成和异常不受此限频影响。
+- Retains task creation, state changes, execution completion, cancellation and resumption, configuration changes, service startup/shutdown, the start and end of every model request (including usage and duration), Agent tool actions, notification display/click/ACK, and SSE disconnection and recovery.
+- Retains every explicit WARNING/ERROR and every event with exception or failure metadata; failures in detailed steps are not downgraded. Repeated background failures retain the initial record and per-minute summaries.
+- Normal message reads, attachment pages, analysis segments, inference batches, transaction wrappers, caches, skipped rules, incremental budget consumption, the first streamed character, and normal page navigation use DEBUG only.
+- Committed index checkpoints, model download progress, and GPU download progress are rate-limited separately by task and execution. The first record is immediate, followed by at most one INFO record per minute; intermediate progress remains available at DEBUG. Completion and exceptions are exempt from this limit.
 
-临时排查细节时可使用项目原有 DEBUG 配置。开启 DEBUG 后仍执行同样的脱敏规则，但详细日志会增多，排查后应恢复 INFO。没有自动清理机制，关键日志也会随任务数、模型调用数和使用天数累积，不保证固定总大小。
+Use the project's existing DEBUG configuration when temporarily investigating details. DEBUG follows the same redaction rules but produces more detailed logs; restore INFO after troubleshooting. There is no automatic cleanup. Key logs accumulate with task count, model call count, and days of use, so a fixed total size is not guaranteed.
 
-关联字段：
+Correlation fields:
 
-| 字段 | 用途 |
+| Field | Purpose |
 | --- | --- |
-| `trace_id` | 串联请求、任务和后台处理；新任务保存到 SQLite，恢复沿用 |
-| `operation_id` / `parent_operation_id` | 单个步骤及其调用关系 |
-| `execution_id` | 每次实际执行生成新值；继续处理保持任务 ID，同时区分本次执行 |
-| `task_id` / `run_id` / `thread_id` | 总结或索引任务、Agent 运行、对话 |
-| `rule_id` / `profile_id` / `version` / `scope_revision` | 规则、配置、补充要求与授权范围版本 |
-| `call_id` | 与 SQLite usage 记录 ID 相同；重试的每次请求分别记录 |
-| `diagnostic_id` | 关联失败记录；HTTP 错误也在 `X-WCDA-AI-Diagnostic` 响应头提供 |
+| `trace_id` | Connects requests, tasks, and background processing; saved to SQLite for new tasks and reused on resumption |
+| `operation_id` / `parent_operation_id` | Identifies a step and its calling relationship |
+| `execution_id` | A new value for each actual execution; continuing retains the task ID while distinguishing the current execution |
+| `task_id` / `run_id` / `thread_id` | Summary or index task, Agent run, and conversation |
+| `rule_id` / `profile_id` / `version` / `scope_revision` | Rule, configuration, supplemental requirements, and authorized-scope versions |
+| `call_id` | Matches the SQLite usage record ID; each retry request is recorded separately |
+| `diagnostic_id` | Connects failure records; HTTP errors also expose it through the `X-WCDA-AI-Diagnostic` response header |
 
-异步代码通过 ContextVar 传递关联信息，专用读取线程池显式复制上下文。下载和推理子进程仅通过 Pipe 传回元数据，由父进程写文件。旧记录没有关联字段时按未知处理，不补造历史用量。
+Asynchronous code propagates correlation information through ContextVar, and the dedicated read thread pool explicitly copies the context. Download and inference subprocesses return only metadata through a Pipe; the parent process writes the file. Missing correlation fields in older records remain unknown, and historical usage is not invented.
 
-## 功能与事件索引
+## Feature and Event Index
 
-下表事件均带 `ai.` 前缀；完整步骤的 started/finished/failed 后缀省略。
+All events below have the `ai.` prefix; started/finished/failed suffixes for complete steps are omitted.
 
-| 功能 | 主要事件与信息 |
+| Feature | Main events and information |
 | --- | --- |
-| 配置、默认模型、连接测试 | `profile.saved/deleted/defaults.saved/connection.*`：变更字段名、模型、协议、版本和图片能力 |
-| 模型列表 | `model.catalog`、`model.catalog.page.*`：分页结果数量、HTTP 状态及耗时 |
-| 模型请求 | `model.call.started/acquired/first_token/finished/attempt_failed/validation/retry/compatibility`：排队、请求和首次输出耗时，每次用量、校验和失败分类 |
-| 总结创建、固定读取范围 | `summary.task.created`、`summary.conversation.read.*`、`summary.graph_read`：任务 ID、开始/截止时间、范围模式、会话数量及读取结果 |
-| 分段、合并、引用、总览 | `summary.segment.*`、`summary.merge.*`、`summary.graph_analyze/graph_overview`：分段数、层级、缓存复用、引用校验和失败会话 |
-| 规则、提醒、取消和恢复 | `summary.run_rule`、`summary.rule.skipped`、`summary.retry.scheduled/requested`、`summary.pause_rule`、`summary.alert.matches`、`summary.cancel_task`、`summary.execution.resume`、`summary.task.state` |
-| 检查点 | `summary.rule.checkpoint.committed`、`agent.analysis.checkpoint.committed`、`index.checkpoint.committed`：仅在对应事务成功返回后输出 |
-| 图片与附件 | `media.resolve_media/enrich/located/cache/page.*/failed`：格式、大小、每页处理与缓存，缺失、加密、损坏、超限或缺少视觉模型等固定原因分类 |
-| Agent 多轮、授权、工具 | `agent.submit/input.accepted/request.reused/scope.applied/input.superseded`、`agent.execute_tool`、`agent.tool.action/cache/data_source.failed`：请求去重、版本、范围、动作、返回数量与缓存 |
-| 大范围分析 | `agent.context.*`、`agent.analysis.segment/coverage/checkpoint.*`、`agent.merge.segment.*`：背景压缩、每页读取、分段发现、合并、疑点核查与资料分页 |
-| Agent 额度和终态 | `agent.budget.consumed/paused`、`agent.context.reduced`、`agent.run.terminal`、`agent.execution.failed`：消费计数、预算缩小、停止原因与保留资料数量 |
-| 模型下载与离线导入 | `download.start/run/state/progress/file.*/retry/process.*/import.*`、`model.file.verify.*`：文件、固定版本、已有字节、重试等待、校验与加载测试 |
-| GPU 组件 | `gpu.component.detected/file.*/package.install.*/install/failed`、`background.failure`：支持情况、组件文件校验、安装及检测失败 |
-| 推理与 CPU 回退 | `inference.encode/process.*/batch.finished/cpu.fallback`：实际设备、运行库版本、批次大小、子进程 PID/退出码及回退原因 |
-| 建立/恢复索引 | `search.build/resume/run`、`index.page.*/batch.*/commit/checkpoint.committed`：读取范围、动态批次、复用数量、推理和提交游标 |
-| 智能搜索和分页 | `search.hybrid/recall.finished/ticket.hit/ticket.expired/keyword.fallback`：关键词/语义召回数、票据命中、设备及降级原因 |
-| 存储、后台循环 | `storage.transaction.failed`、`index.transaction.rolled_back`、`background.failure/recovered`：错误类型、系统/SQLite 错误码、合并次数与持续时间 |
-| 服务启停与恢复 | `lifecycle.*`、`runtime.component`、`storage.usage.recovered`、`agent.runs.recovered`、各服务 `start/stop/purge_account` |
-| 前端请求和 SSE | `client.request.failed`、`client.sse.open/disconnected/recovered/invalid`、`client.response.stale` |
-| 原文与通知导航 | `client.source.ready/failed`、`client.navigation.started/finished/failed` |
-| 桌面通知 | `client.notification.requested/shown/failed/clicked/ack/ack_failed/duplicate/unsupported` |
-| 上报链路 | `client.transport.dropped`；后端离线时桌面 `desktop-main.log` 中的 `[ai.diagnostic.undelivered]` |
+| Configuration, default models, connection tests | `profile.saved/deleted/defaults.saved/connection.*`: changed field names, model, protocol, version, and image capability |
+| Model lists | `model.catalog`, `model.catalog.page.*`: paginated result counts, HTTP status, and duration |
+| Model requests | `model.call.started/acquired/first_token/finished/attempt_failed/validation/retry/compatibility`: queue, request, and first-output duration; usage, validation, and failure category for each call |
+| Summary creation and fixed read scope | `summary.task.created`, `summary.conversation.read.*`, `summary.graph_read`: task ID, start/cutoff times, scope mode, conversation count, and read results |
+| Segmentation, merging, citations, overviews | `summary.segment.*`, `summary.merge.*`, `summary.graph_analyze/graph_overview`: segment count, levels, cache reuse, citation validation, and failed conversations |
+| Rules, alerts, cancellation, resumption | `summary.run_rule`, `summary.rule.skipped`, `summary.retry.scheduled/requested`, `summary.pause_rule`, `summary.alert.matches`, `summary.cancel_task`, `summary.execution.resume`, `summary.task.state` |
+| Checkpoints | `summary.rule.checkpoint.committed`, `agent.analysis.checkpoint.committed`, `index.checkpoint.committed`: emitted only after the corresponding transaction returns successfully |
+| Images and attachments | `media.resolve_media/enrich/located/cache/page.*/failed`: format, size, per-page processing and cache; fixed categories for missing, encrypted, corrupted, oversized content or an unavailable vision model |
+| Agent turns, authorization, tools | `agent.submit/input.accepted/request.reused/scope.applied/input.superseded`, `agent.execute_tool`, `agent.tool.action/cache/data_source.failed`: request deduplication, version, scope, action, returned count, and cache |
+| Large-scope analysis | `agent.context.*`, `agent.analysis.segment/coverage/checkpoint.*`, `agent.merge.segment.*`: background compaction, per-page reads, segment findings, merging, checks of uncertain points, and material pagination |
+| Agent budgets and terminal states | `agent.budget.consumed/paused`, `agent.context.reduced`, `agent.run.terminal`, `agent.execution.failed`: consumption counts, budget reduction, stop reasons, and retained material counts |
+| Model downloads and offline imports | `download.start/run/state/progress/file.*/retry/process.*/import.*`, `model.file.verify.*`: files, pinned revision, existing bytes, retry waits, verification, and load tests |
+| GPU components | `gpu.component.detected/file.*/package.install.*/install/failed`, `background.failure`: support status, component file verification, installation, and detection failures |
+| Inference and CPU fallback | `inference.encode/process.*/batch.finished/cpu.fallback`: actual device, runtime version, batch size, subprocess PID/exit code, and fallback reason |
+| Index building/resumption | `search.build/resume/run`, `index.page.*/batch.*/commit/checkpoint.committed`: read scope, dynamic batches, reuse count, inference, and commit cursor |
+| Smart search and pagination | `search.hybrid/recall.finished/ticket.hit/ticket.expired/keyword.fallback`: keyword/semantic recall counts, ticket hits, device, and degradation reason |
+| Storage and background loops | `storage.transaction.failed`, `index.transaction.rolled_back`, `background.failure/recovered`: error type, system/SQLite error codes, coalesced count, and duration |
+| Service startup/shutdown and recovery | `lifecycle.*`, `runtime.component`, `storage.usage.recovered`, `agent.runs.recovered`, and each service's `start/stop/purge_account` |
+| Frontend requests and SSE | `client.request.failed`, `client.sse.open/disconnected/recovered/invalid`, `client.response.stale` |
+| Source and notification navigation | `client.source.ready/failed`, `client.navigation.started/finished/failed` |
+| Desktop notifications | `client.notification.requested/shown/failed/clicked/ack/ack_failed/duplicate/unsupported` |
+| Reporting transport | `client.transport.dropped`; `[ai.diagnostic.undelivered]` in the desktop `desktop-main.log` when the backend is offline |
 
-关键步骤使用 INFO；兼容切换、可恢复失败和降级使用 WARNING；最终失败、存储异常和后台异常使用 ERROR。重复后台故障首次立即记录，之后每分钟汇总，恢复时补齐被合并次数。下载内部仍每 5 秒采集诊断进度，INFO 文件每分钟最多记录一次，阶段变化和文件完成立即记录。流式回答默认记录请求开始和结束，首次输出仅记 DEBUG，不逐字记录。SSE 心跳、无变化的轮询和组件渲染不记录。
+Key steps use INFO; compatibility switches, recoverable failures, and degradation use WARNING; terminal failures, storage exceptions, and background exceptions use ERROR. Repeated background failures are recorded immediately the first time and summarized per minute afterward, with the coalesced count included on recovery. Downloads still collect diagnostic progress internally every 5 seconds, while the INFO file records it at most once per minute; stage changes and file completion are recorded immediately. Streaming answers record request start and end by default, with first output at DEBUG only and no character-by-character logging. SSE heartbeats, unchanged polling, and component rendering are not logged.
 
-## 如何排查
+## Troubleshooting
 
-先取得任务/运行 ID 或接口响应头中的 trace/diagnostic ID，在当前及前一天日志中搜索。例如 PowerShell 安装了 rg 时：
+First obtain the task/run ID or the trace/diagnostic ID from the API response headers, then search the current and previous day's logs. For example, in PowerShell with rg installed:
 
 ```powershell
-rg '任务或运行ID' 'D:\实际output目录\logs'
+rg 'task-or-run-ID' 'D:\actual-output-directory\logs'
 ```
 
-按问题定位：
+Investigate by symptom:
 
-1. **没有执行**：查 `task.created` / `input.accepted` / `search.build`、规则配置和 `background.failure`。需要追踪未触发原因时临时开启 DEBUG，查看 `rule.skipped` 的 `active_task`、`revision_changed`、`no_new_messages`、`below_threshold`。
-2. **一直等待**：模型有 `call.started` 无 finished 表示尚未完成，完成记录中的 queue_ms/request_ms 可区分排队和请求耗时；实时区分两者需开启 DEBUG 查看 acquired。下载查看 retry 的等待秒数；索引查看最近一分钟的 checkpoint.committed 和任务终态。详细 page/batch/commit 仅在 DEBUG 下可见。
-3. **回答失败**：从 `agent.run.terminal`、`summary.task.state` 或 `http.rejected/failed` 沿 trace 查 `call_id`。检查鉴权、限流、超时、无效 JSON、引用失败、上下文不足及兼容切换；`usage_known=false` 表示未知，不能按零费用理解。修复后继续，比较新旧 `execution_id` 与缓存事件。
-4. **语义降级**：查 `search.keyword.fallback`。`scope_not_indexed` 表示索引未覆盖；`semantic_failed` 继续追踪 inference/process 错误。`inference.cpu.fallback` 表示当前批次改用 CPU；结合后续 checkpoint.committed 和 search.run.finished 的状态确认恢复结果，批次详情需开启 DEBUG。
-5. **通知未出现**：先查后端 `summary.notify` 和通知事件，再按 task_id 查 requested → shown 或 failed/unsupported。ACK 只代表客户端已处理投递，**不能证明系统显示成功或用户已看到**；用户点击有单独 clicked。后端离线时看 desktop-main.log，导航失败再查 navigation/source 事件。
-6. **恢复后看似重复处理**：任务 ID 应相同、执行 ID 不同。缓存事件不是新模型调用；检查点只有 committed 才算推进。回滚、部分附件失败和未完成分页会保留游标，恢复重读是预期行为。
+1. **No execution**: inspect `task.created` / `input.accepted` / `search.build`, rule configuration, and `background.failure`. Temporarily enable DEBUG to trace skipped triggers through `rule.skipped` values `active_task`, `revision_changed`, `no_new_messages`, and `below_threshold`.
+2. **Still waiting**: `call.started` without finished means the model request has not completed. queue_ms/request_ms in the completion record distinguish queue and request duration; enable DEBUG and inspect acquired to distinguish them in real time. For downloads, inspect retry wait seconds; for indexing, inspect checkpoint.committed within the last minute and the task's terminal state. Detailed page/batch/commit events require DEBUG.
+3. **Answer failure**: follow the trace from `agent.run.terminal`, `summary.task.state`, or `http.rejected/failed` to `call_id`. Check authentication, rate limits, timeouts, invalid JSON, citation failures, insufficient context, and compatibility switches. `usage_known=false` means unknown usage, not zero cost. Continue after fixing the issue and compare old/new `execution_id` values and cache events.
+4. **Semantic degradation**: inspect `search.keyword.fallback`. `scope_not_indexed` means the index does not cover the scope; for `semantic_failed`, trace inference/process errors. `inference.cpu.fallback` means the current batch switched to CPU. Confirm recovery using subsequent checkpoint.committed events and the status of search.run.finished; batch details require DEBUG.
+5. **Missing notification**: inspect backend `summary.notify` and notification events first, then follow requested → shown or failed/unsupported by task_id. ACK means only that the client processed delivery; **it does not prove successful system display or that the user saw it**. User clicks have a separate clicked event. When the backend is offline, inspect desktop-main.log; for navigation failures, inspect navigation/source events.
+6. **Apparently repeated processing after resumption**: task IDs should match and execution IDs should differ. Cache events are not new model calls, and only committed checkpoints advance progress. Rollbacks, partial attachment failures, and incomplete pagination retain the cursor, so rereading on resumption is expected.
 
-## 内容边界和客户端入口
+## Content Boundaries and Client Entry Point
 
-不记录密钥、正文、问题、检索词、提示词、模型回答、通知正文、Base64、签名下载地址、请求体或完整任务/timeline。异常仅保留类型、固定分类、HTTP/系统错误码和文件/函数/行号，不输出异常消息、源码行及局部变量。开启 DEBUG 同样受此限制；SDK 原始请求日志被过滤，AI 上下文中的旧模块自由文本也转换为安全诊断。
+Logs exclude keys, message bodies, questions, search terms, prompts, model answers, notification bodies, Base64, signed download URLs, request bodies, and complete tasks/timelines. Exceptions retain only type, fixed category, HTTP/system error codes, and file/function/line locations; exception messages, source lines, and local variables are excluded. DEBUG has the same restrictions. Raw SDK request logs are filtered, and free text from older modules within AI contexts is converted into safe diagnostics.
 
-`POST /api/ai/diagnostics/events` 只接受本机请求、固定事件及白名单字段，每批最多 50 条、64 KiB，不接受任意日志文本。客户端按秒批量发送，队列最多 500 条，最多尝试 4 次；首次发送失败给桌面日志兜底，溢出明确计数。上报使用独立传输，不进入请求错误上报链，避免递归。
+`POST /api/ai/diagnostics/events` accepts only local-machine requests, fixed events, and allowlisted fields, with at most 50 events and 64 KiB per batch; arbitrary log text is rejected. The client batches events each second, holds at most 500 events, and attempts delivery at most 4 times. The first delivery failure writes to the desktop log, and overflow is explicitly counted. Reporting uses a separate transport and stays outside the request-error reporting chain to prevent recursion.
 
-AI 普通请求使用 `X-WCDA-AI-Trace` 请求/响应头，保留 Agent 原有 request_id 的业务去重用途。浏览器原生 EventSource 无法设置自定义请求头，使用经过校验的 `ai_trace` 随机编号关联 SSE，服务端仍返回 trace 响应头。
+Ordinary AI requests use the `X-WCDA-AI-Trace` request/response header while retaining the Agent's existing request_id for business deduplication. Native browser EventSource cannot set custom request headers, so SSE uses a validated random `ai_trace` identifier for correlation; the server still returns the trace response header.
 
-Agent 进度使用单条长连接：事件写入 SQLite 后通过进程内条件变量立即唤醒订阅者，SQLite 同时保留 `Last-Event-ID` / `after` 断线重放能力；空闲连接每 15 秒发送一次注释心跳，不再按 100ms 查询事件表。前端首次进入时读取一次运行快照，连接正常后仅合并 SSE 增量和终态快照；只有自动重连、事件版本跳跃或 SSE 断线时才读取权威快照，断线期间启用有限的保底轮询。
+Agent progress uses one persistent connection: after an event is written to SQLite, an in-process condition variable immediately wakes subscribers. SQLite also retains disconnection replay through `Last-Event-ID` / `after`. Idle connections send a comment heartbeat every 15 seconds instead of querying the event table every 100ms. On initial entry, the frontend reads one run snapshot; while connected, it merges only SSE deltas and terminal snapshots. It reads an authoritative snapshot only on automatic reconnection, an event-version gap, or SSE disconnection, using bounded fallback polling while disconnected.
 
-## 验证与限制
+## Verification and Limits
 
-新增回归覆盖并发上下文和线程池、恢复执行 ID、HTTP 本机限制/体积/白名单、INFO/DEBUG/SDK/异常栈的敏感哨兵、跨天并发写入、重复初始化、目录重建、output 切换、模型错误与重试、流式日志条数、索引回滚、前端队列/SSE、通知阶段和桌面离线兜底。
+Added regressions cover concurrent context and thread pools, resumed execution IDs, HTTP local-machine/size/allowlist restrictions, sensitive sentinels in INFO/DEBUG/SDK/exception stacks, concurrent writes across midnight, repeated initialization, directory recreation, output switching, model errors and retries, streaming log counts, index rollback, frontend queues/SSE, notification stages, and desktop logging when offline.
 
-`tools/benchmark_ai_logging.py --messages 100000 --output tmp/ai-key-logging-benchmark.json` 沿用现有合成 SQLite 消息场景，比较日志关闭和开启。收敛前记录 576 条、168370 字节；当前 INFO 策略记录 1 条已提交检查点、371 字节，日志体积降低约 99.8%。本轮索引耗时不足一分钟，因此未触发第二次进度记录；更慢的任务会每分钟记录进度。这个基准直接调用读取和提交方法，不包含完整任务启停、网络模型请求、真实 GPU 推理和桌面通知，不能将 371 字节当成全部 AI 使用的体积上限。
+`tools/benchmark_ai_logging.py --messages 100000 --output tmp/ai-key-logging-benchmark.json` reuses the existing synthetic SQLite message scenario to compare logging disabled and enabled. Before narrowing the policy, it recorded 576 entries and 168370 bytes; the current INFO policy records 1 committed checkpoint and 371 bytes, reducing log volume by approximately 99.8%. This indexing run took less than a minute, so no second progress record was triggered; slower tasks record progress each minute. The benchmark directly calls read and commit methods and excludes full task startup/shutdown, network model requests, real GPU inference, and desktop notifications. The 371-byte result is not an upper bound for all AI use.
 
-本轮日志关闭/开启的读取及事务提交耗时为 44.323 → 33.482 秒，机器负载与缓存影响明显，不能将负增幅解释为日志带来加速或承诺固定开销。结果文件独立写到指定路径，不写入生产业务日志。新增回归还验证连续一千轮正常细节不写 INFO、异常仍可见、DEBUG 仍脱敏、进度按任务/执行限频，以及其他模块共享文件 handler 时 INFO/DEBUG 不受影响。
+Read and transaction-commit duration with logging disabled/enabled was 44.323 → 33.482 seconds. Machine load and caching have a substantial effect, so the negative increase cannot be interpreted as a logging speedup or a promise of fixed overhead. The result file is written separately to the specified path rather than the production business log. Added regressions also verify that normal details from one thousand consecutive rounds stay out of INFO, exceptions remain visible, DEBUG remains redacted, progress is rate-limited by task/execution, and other modules sharing the file handler retain their INFO/DEBUG behavior.
 
-当前环境的联系人导出脱敏测试依赖未安装的原生 broker，属于既有环境阻塞；AI 日志测试不依赖此组件。真实断网、GPU 驱动崩溃和各操作系统通知中心显示仍应在对应发布机器上做最终联调。
+The contact-export redaction test in the current environment depends on an uninstalled native broker, an existing environment blocker; AI logging tests do not depend on that component. Actual network loss, GPU driver crashes, and notification-center display on each operating system still require final integration checks on the corresponding release machines.

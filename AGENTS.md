@@ -1,13 +1,15 @@
-# 开发与清理规则
+# Development and cleanup rules
 
-- 修改前查阅现有实现和调用方；API 或依赖用法不明确时查官方文档，业务语义不明确时向用户确认，不猜测。
-- 优先复用现有实现，采用简单、平铺的逻辑；不添加无实际调用的封装、兼容层或预留功能。
-- 禁止用静默降级、隐式重试、默认成功返回或空 catch 掩盖错误。错误应在源头明确抛出，并由现有界面错误状态展示。
-- 配置缺省值只用于未配置的情况；无效配置、损坏数据和读写失败不能伪装成空数据或正常默认状态。
-- 必要的格式、权限和来源校验集中在入口；核心流程信任已校验的数据，不重复兜底。
-- 功能恢复或移除时，核对整条调用链，清理对应旧阻断、文案、适配层、状态、未用导入和专用测试。
-- 删除代码前核对实际调用，包括框架回调、自动注册、动态导入、桌面 IPC 和工具入口；不能仅凭搜索次数判断死代码。
-- 小步修改并运行相关验证；保留现有用户数据和不属于本次任务的修改。
-- 保留权限、隐私、账号隔离、异步请求身份、取消和数据一致性保护。发送结果未知不能算成功或自动重发，附件及待确认状态必须保留。
-- 验证结果区分自动化测试、真实模型推理、真实微信操作及安装包验收，不混称全部通过。
-- GitHub Release 说明只写版本变更、下载与必要使用说明；验证结果、验收范围、未验证项目及限制写入项目文档，不在 Release 中添加 “Verification and limits” 或同类章节。
+- Read the existing implementation and its callers before editing. Consult official documentation when an API or dependency is unclear; ask the user about ambiguous business rules instead of guessing.
+- Reuse existing code and keep execution simple and flat. Do not add unused wrappers, compatibility layers, or speculative features.
+- Do not hide errors through silent degradation, implicit retries, default success responses, or empty catch blocks. Raise clear errors at their source and display them through the existing error state.
+- Configuration defaults apply only to missing configuration. Invalid settings, corrupt data, and failed reads or writes must not appear as empty data or valid defaults.
+- Centralize format, permission, and provenance checks at entry boundaries. Core logic trusts validated input and does not repeat fallback checks.
+- When restoring or removing a feature, inspect the complete call chain and clean up obsolete blockers, copy, adapters, state, imports, and dedicated tests.
+- Before deleting code, check framework callbacks, automatic registration, dynamic imports, desktop IPC, and tool entry points. Search counts alone do not establish dead code.
+- Make small changes and run relevant verification. Preserve existing user data and changes outside the task.
+- Preserve permissions, privacy, account isolation, asynchronous request identity, cancellation, and consistency protections. An unknown send result is not success and must not trigger automatic resend; retain attachments and pending-review state.
+- Distinguish automated tests, real model inference, real WeChat operations, and installer acceptance. Do not describe them collectively as fully verified.
+- Keep GitHub presentation and repository documentation in English. Change application-interface language only when the user requests it separately.
+- GitHub Release titles and notes default to English only unless the user explicitly requests another language. Notes contain changes, downloads, and necessary usage instructions; put verification results, scope, untested cases, and limits in project documentation rather than a Release verification section.
+- After modifying a Release, reread its remote title and body to verify language and content.

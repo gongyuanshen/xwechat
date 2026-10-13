@@ -1,73 +1,73 @@
-# 聊天 AI 总结与关注提醒
+# Chat AI Summaries and Attention Alerts
 
-跨平台运行策略、Mac 实机结果及未覆盖项目见 [macOS AI 兼容性与验收](ai-macos-compatibility.md)。
+For cross-platform runtime policy, physical Mac results, and uncovered items, see the historical macOS AI compatibility and acceptance record (not distributed with the public source).
 
-## 使用
+## Usage
 
-1. 打开「设置 → AI 服务」，选择服务商并填写地址和密钥，离开输入框后自动从上游获取模型，也可点击「从上游获取」刷新。通过搜索和下拉框选择模型后保存，无需先填写模型名称。服务商仅预填地址和协议，不内置模型名单。
-2. 打开已有配置会自动刷新模型列表并保留已选模型；模型不在列表中会提示重新选择。新配置优先选择上游明确声明图片能力的模型，否则选择上游返回的第一个模型。上游未提供能力信息时，需要手动确认图片能力并测试连接。保存服务后，在 AI 对话输入框下方选择服务、模型和支持的思考设置。连接测试会产生推理调用，获取列表不会。
-3. 进入群聊或好友会话，点击右上角 AI。选择一个或多个会话，以及最近条数、过去小时数或起止时间，开始总结。
-4. 在「自动任务」中建立间隔、每日定时或新增消息条数规则；在「关注提醒」中填写自然语言关注条件并选择检测频率。勾选启用后才开始后台执行。
-5. 在「历史记录」中查看结果和命中理由，点击来源可定位原消息。规则和任务均保存在本机，切换页面及最小化到托盘不影响执行。
+1. Open "Settings → AI services", select a provider, and enter its address and key. Leaving the input field automatically fetches models from the provider; click "Fetch from provider" to refresh. Search or use the dropdown to select a model and save. You do not need to enter a model name first. Providers prefill only the address and protocol, without a built-in model list.
+2. Opening an existing configuration automatically refreshes the model list while retaining the selected model; if it is absent, the UI asks you to select again. New configurations prefer a model whose image capability is explicitly declared by the provider, otherwise the first returned model. If the provider supplies no capability information, manually confirm image capability and test the connection. After saving a service, select the service, model, and supported thinking settings below the AI conversation input. Connection tests make inference calls; fetching the list does not.
+3. Open a group or private chat and click AI in the upper-right corner. Select one or more conversations and a recent-message count, past-hour count, or start/end time, then start the summary.
+4. Under "Automatic tasks", create interval, daily schedule, or new-message-count rules. Under "Attention alerts", enter natural-language conditions and select a detection frequency. Background execution starts only after enabling the rule.
+5. View results and match reasons in "History", and click a source to locate its original message. Rules and tasks stay on the local machine; navigation and minimizing to the tray do not interrupt execution.
 
-AI 对话历史显示当前聊天的已保存对话。从顶部左侧历史按钮或「更多 → 对话历史」打开列表；点击「新对话」后仍可从列表返回已有回答，空白对话在首次发送问题时创建。切换聊天后，历史列表同步显示对应聊天的 AI 对话。
+AI conversation history shows saved conversations for the current chat. Open the list from the history button at the top left or "More → Conversation history". After clicking "New conversation", existing answers remain accessible from the list; an empty conversation is created when its first question is sent. Switching chats updates the history list to that chat's AI conversations.
 
-聊天输入框的「AI 建议」使用顶部 AI 对话当前选中的服务、模型和思考设置，根据当前会话最近 10 条消息拟一条短回复并填入草稿。请求携带点击时的模型选择，即使选择尚未保存也不会误用之前的模型；未携带选择的客户端使用已保存的全局选择。用户审阅后点击「发送」才会发送微信消息。删除所选服务后需要重新选择，不会自动改用旧默认服务。模型配置不可用返回 422 并保留具体原因；读取配置的程序异常返回 `AI_MODEL_RESOLVE_FAILED`（500），后端日志保留异常堆栈。
+"AI suggestion" in the chat input uses the service, model, and thinking settings currently selected in the AI conversation above. It drafts a short reply from the current conversation's latest 10 messages and inserts it into the draft. The request carries the model selection from the moment of the click, so even an unsaved selection cannot accidentally use the previous model. Clients that omit a selection use the saved global selection. A WeChat message is sent only after the user reviews the draft and clicks "Send". Deleting the selected service requires selecting again; it does not automatically switch to an old default service. An unavailable model configuration returns 422 with its specific reason; a program error while reading configuration returns `AI_MODEL_RESOLVE_FAILED` (500), with the exception stack retained in backend logs.
 
-云端服务会收到选定的消息和参与分析的媒体内容。也可以使用本机兼容服务。密钥仅由后端管理，不回传浏览器，不进入模型工作流检查点；默认不启用外部 LangSmith 追踪。
+Cloud services receive the selected messages and media used in analysis. A compatible local service can also be used. Keys are managed only by the backend, are not returned to the browser, and do not enter model-workflow checkpoints. External LangSmith tracing is disabled by default.
 
-上游不支持模型列表或暂时连接失败时，提供重试和「手动输入（备用）」。修改服务地址或协议后，需要重新输入密钥才能获取模型，已保存密钥不会自动发送到新地址。
+If a provider does not support model lists or temporarily cannot connect, retry and "Manual input (alternative)" are available. After changing a service address or protocol, reenter the key before fetching models; a saved key is not automatically sent to the new address.
 
-### AI 服务预设
+### AI Service Presets
 
-「新增服务」提供 14 项预设：DeepSeek、Claude、Kimi、OpenAI、Google Gemini、通义千问（阿里云百炼）、智谱 GLM、豆包（火山方舟）、硅基流动、OpenRouter、Groq、Ollama、LM Studio 和自定义。可以按名称或别名搜索，例如「谷歌」「千问」「GLM」「火山」；自定义入口排在列表末尾。
+"Add service" offers 14 presets: DeepSeek, Claude, Kimi, OpenAI, Google Gemini, Qwen (Alibaba Cloud Model Studio), Zhipu GLM, Doubao (Volcengine Ark), SiliconFlow, OpenRouter, Groq, Ollama, LM Studio, and Custom. Search by name or alias; example Chinese aliases are `\u8c37\u6b4c` (Google), `\u5343\u95ee` (Qwen), `GLM`, and `\u706b\u5c71` (Volcengine). Custom is last in the list.
 
-预设会填写配置名称、API 地址和协议，地址仍可修改。国内平台默认使用国内通用 API 地址，不是 Coding Plan 专用入口。Gemini 使用 `/v1beta/openai` 兼容接口。切换预设会清空密钥、模型选择和图片能力，需要重新确认；不会复用原服务的密钥。
+Presets fill the configuration name, API address, and protocol; the address remains editable. Chinese platforms default to their general domestic API addresses rather than Coding Plan endpoints. Gemini uses the `/v1beta/openai` compatibility endpoint. Switching presets clears the key, model selection, and image capability, requiring reconfirmation; it does not reuse the previous service's key.
 
-选择 Ollama 或 LM Studio 前，请先启动其本地服务并准备好模型。默认地址分别为 `http://127.0.0.1:11434/v1` 和 `http://127.0.0.1:1234/v1`，未启用鉴权时密钥可留空；选择后会自动获取模型。启用鉴权时需填写密钥，端口不同则修改地址。连接失败时检查服务、地址、端口和鉴权设置，再点击「从上游获取」。也可勾选「手动输入（备用）」填写真实模型名称后保存；保存配置不代表连接已验证。
+Before selecting Ollama or LM Studio, start its local service and prepare a model. Their default addresses are `http://127.0.0.1:11434/v1` and `http://127.0.0.1:1234/v1`, respectively. Keys may be empty when authentication is disabled, and models are fetched automatically after selection. Enter a key if authentication is enabled, and change the address if the port differs. If the connection fails, check the service, address, port, and authentication settings, then click "Fetch from provider". You can also enable "Manual input (alternative)", enter the actual model name, and save; saving a configuration does not establish that its connection has been verified.
 
-## 内容与运行边界
+## Content and Runtime Boundaries
 
-- 支持文本、引用、卡片标题、已有语音转写、JPEG/PNG/WebP/GIF（首帧）、PDF（含扫描页）、DOCX、XLSX、PPTX、TXT、MD、CSV。
-- 自动转写新语音、视频理解、旧版 Office 文件及压缩包不在本版范围。
-- 附件须在本机可读取；缺失、损坏、加密及超限都会显示处理状态。单附件默认 20 MB，可调整至 200 MB；Office 解压总量限制为 512 MB。
-- 长资料分段处理，不静默截断。图片缩放至最长边 1600 像素后送入视觉模型。
-- 导入快照可以总结已有消息；实时关注需要可用的实时数据源。
-- 检测默认每分钟一次，可选 10 秒、5 分钟和自定义间隔。无新增消息不调用模型；新增条数阈值按规则中所有会话合计计算。
-- 新规则从启用时建立监控基线。完全退出应用后停止；重新启动恢复检查点，错过的定时执行合并为一次。
-- 自动任务失败退避重试，连续失败 3 次暂停对应规则。鉴权错误直接暂停。失败会话不推进成功检查点。
-- 手动重试保留原消息时间范围，重新解析当前模型配置并记录版本；配置变化时清除旧模型分段结果，附件补齐后也会重新分析发生变化的内容。
-- 桌面通知默认展示会话名和提醒理由，可关闭或隐藏内容。操作系统禁用通知时，应用内仍保存结果。
+- Supports text, quotes, card titles, existing voice transcripts, JPEG/PNG/WebP/GIF (first frame), PDF (including scanned pages), DOCX, XLSX, PPTX, TXT, MD, and CSV.
+- Automatic transcription of new voice messages, video understanding, legacy Office files, and archives are outside this version's scope.
+- Attachments must be readable locally; missing, corrupted, encrypted, and oversized files show processing status. The default per-attachment limit is 20 MB, adjustable to 200 MB; total Office decompression is limited to 512 MB.
+- Long material is processed in segments without silent truncation. Images are scaled to a longest edge of 1600 pixels before submission to the vision model.
+- Imported snapshots support summaries of existing messages; live attention monitoring requires an available live data source.
+- Detection defaults to once per minute, with 10-second, 5-minute, and custom intervals available. No new messages means no model call; the new-message threshold counts all conversations in the rule together.
+- New rules establish their monitoring baseline when enabled. Fully exiting the application stops execution; restarting restores checkpoints and combines missed scheduled executions into one.
+- Failed automatic tasks retry with backoff, and 3 consecutive failures pause the corresponding rule. Authentication errors pause it immediately. Failed conversations do not advance successful checkpoints.
+- Manual retries retain the original message time range, resolve the current model configuration again, and record its version. Configuration changes clear old-model segment results; newly available attachments also trigger reanalysis of changed content.
+- Desktop notifications show the conversation name and alert reason by default, with options to disable them or hide content. Results remain stored in the application if operating-system notifications are disabled.
 
-## 开发与验证
+## Development and Verification
 
-后端公共能力位于 `src/wechat_decrypt_tool/ai/`，接口位于 `routers/ai.py`。LangChain 适配模型；LangGraph 编排任务，SQLite 保存业务记录与检查点。新功能应通过公共模型服务引用全局配置。
+Shared backend capabilities are in `src/wechat_decrypt_tool/ai/`, with endpoints in `routers/ai.py`. LangChain adapts models, LangGraph orchestrates tasks, and SQLite stores business records and checkpoints. New features should reference global configuration through the shared model service.
 
-模型发现参考 [Codex++ 的模型目录获取逻辑](https://github.com/BigPizzaV3/CodexPlusPlus/blob/48d43158688f5096c7059c690f8cd1daab340681/crates/codex-plus-core/src/model_catalog.rs)：统一接口地址，兼容数组和 `data/models/items` 包装、`id/model/name` 标识并去重。本项目另外处理 Claude 的分页及图片能力元数据，不根据模型名字猜测能力。切换凭据时清空旧列表，并忽略迟到响应。
+Model discovery follows [Codex++ model catalog fetching](https://github.com/BigPizzaV3/CodexPlusPlus/blob/48d43158688f5096c7059c690f8cd1daab340681/crates/codex-plus-core/src/model_catalog.rs): normalize endpoint addresses, handle arrays and `data/models/items` wrappers, accept `id/model/name` identifiers, and deduplicate. This project additionally handles Claude pagination and image-capability metadata without guessing capabilities from model names. Credential changes clear the previous list, and late responses are ignored.
 
-运行依赖通过 `uv sync --locked --extra voice-transcription` 安装。前端需使用符合当前 Nuxt/Vite 要求的 Node 版本；Node 18 无法构建当前依赖。安装包与免安装压缩包已暂停后续发行，当前运行方式见 [Windows 源码开发说明](development-windows.md)。
+Install runtime dependencies with `uv sync --locked --extra voice-transcription`. The frontend requires a Node version meeting current Nuxt/Vite requirements; Node 18 cannot build the current dependencies. Further installer and portable-archive releases are paused. For the current runtime method, see [Windows Source Development](development-windows.md).
 
-Windows 源码启动只使用项目内的独立数据实现，不下载或加载旧 client／broker。先在 `desktop` 安装 npm 依赖，再以 Node 22.12 以上运行 `node scripts/dev.cjs`；Nuxt 子进程复用同一个 Node。旧模式删除后的运行验证暂未执行，见[本轮清理范围](plans/2026-10-04-remove-legacy-mode.md)。
+Windows source startup uses only the project's independent data implementation and does not download or load the old client/broker. Install npm dependencies in `desktop`, then run `node scripts/dev.cjs` with Node 22.12 or later; the Nuxt child process uses the same Node. Runtime verification after the legacy-mode removal had not yet been performed in the historical 2026-10-04 cleanup record.
 
-模型测试均可使用模拟服务，不需要真实密钥。根目录 `tests/` 为本地私有 Python 回归测试，不随公开源码提供；构建和运行应用无需该目录。
+Model tests can use simulated services without real keys. Root-level `tests/` contains local private Python regression tests and is not distributed with the public source; it is not needed to build or run the application.
 
-公开源码检查（前端命令在 `frontend` 目录执行，桌面命令在项目根目录执行）：
+Public source checks (run frontend commands in `frontend`, and desktop commands at the project root):
 
 ```text
 npx vitest run tests/ai-panel.test.js
 node --test desktop/tests/ai-notifications.test.cjs
 ```
 
-本地 Python 回归（需持有根目录 `tests/`，在项目根目录执行）：
+Local Python regressions (require root-level `tests/`; run at the project root):
 
 ```text
 python -m pytest tests/test_ai_services.py tests/test_ai_api.py
 ```
 
-`desktop/scripts/smoke-ai-notifications.cjs` 由 Electron 执行，用合成消息验证原生通知，结果写入 `logs/ai-notification-smoke.json`。不读取微信数据或调用模型。
+`desktop/scripts/smoke-ai-notifications.cjs` runs through Electron and verifies native notifications with synthetic messages, writing results to `logs/ai-notification-smoke.json`. It does not read WeChat data or call a model.
 
-## 使用量审计
+## Usage Audit
 
-设置 → AI 服务可查看逐次调用记录，包含调用时间、模型与配置版本、账号、任务 ID、重试次数、图片数量、输入和输出 token、状态，并可导出已加载记录为 JSON。每次重试独立计数，结果格式校验失败仍记录供应商已返回的用量。鉴权失败、超时或取消未返回用量时显示“未知”，不能视为免费；强制退出时未结束的记录显示“执行中 / 中断后未完成”。账单金额以服务商为准。
+Settings → AI services shows per-call records with call time, model and configuration version, account, task ID, retry count, image count, input/output tokens, and status. Loaded records can be exported as JSON. Each retry is counted separately, and response-format validation failures still record usage returned by the provider. Authentication failures, timeouts, or cancellations without returned usage show "Unknown", which does not mean free. Records unfinished at forced exit show "Running / unfinished after interruption". Provider billing is authoritative.
 
-审计不保存密钥、提示词、聊天正文或原始供应商异常。旧记录不具备的字段显示为未知。元数据接口（如获取模型列表）不计入模型推理调用数。
+The audit does not save keys, prompts, chat bodies, or raw provider exceptions. Fields unavailable in older records show unknown. Metadata endpoints, such as model-list fetching, do not count as model inference calls.

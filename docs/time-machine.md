@@ -1,19 +1,19 @@
-# 聊天时光机
+# Chat Time Machine
 
-入口为 `/time-machine`。默认对照今日的月、日，横向并列当前账号本地索引中有记录的全部年份；可以选择联系人或群聊，也可以选择包含首尾两天的日期范围。日期范围按年份拆列。每列按时间正序读取，每页 30 条，继续读取直到明确显示本时段已读完。2 月 29 日在非闰年显示“这一年没有 2 月 29 日”，不会改成 3 月 1 日。
+The entry point is `/time-machine`. By default, it compares today's month and day across all years with records in the current account's local index, arranged side by side. You can select a contact or group chat, or a date range that includes both endpoints. Date ranges are split into columns by year. Each column reads messages in chronological order, 30 per page, and continues until it explicitly shows that the period has been fully read. For February 29 in a non-leap year, it displays "This Year Has No February 29" instead of substituting March 1.
 
-页面复用账号选择、隐私模式、主题变量、附件图片读取接口及原消息定位入口。文字按索引保存的完整 `content` 呈现；防撤回保留的消息明确显示“已撤回”，接口保留撤回时间。图片使用已有本地附件解析，可能为缩略图，失败时给出可见提示。其他消息类型提供已有正文、标题和引用，并可点击“查看原消息”回到聊天页查看完整卡片或媒体。不调用模型，也不保存额外的聊天副本。
+The page reuses account selection, privacy mode, theme variables, attachment image endpoints, and original-message navigation. Text displays the full `content` stored in the index. Messages retained by anti-revoke explicitly show "Revoked", and the API retains the revocation time. Images use existing local attachment resolution and may be thumbnails; failures produce a visible message. Other message types show existing text, titles, and quotes, and "View Original Message" returns to the chat page for the full card or media. The feature does not call models or save extra chat copies.
 
-## 数据范围与一致性
+## Data Scope and Consistency
 
-- 使用已有 `message_meta` 时间索引和 `message_fts.payload_json`；年份通过最早/最晚时间及各年范围存在性查询获取，聊天目录只读取索引中的会话标识。消息正文按日期范围分页读取，未添加全历史正文扫描。
-- 包括当前账号索引中可见的普通聊天和群聊；排除公众号及隐藏会话。界面显示实际应用的聊天与日期范围，未提交的表单编辑不会改变现有分页的查询参数。
-- 展示的是本地解密消息索引快照。页面显示索引建立时间和陈旧状态；已建立但较旧的索引不会被描述为最新数据。初次未建立索引时沿用现有构建机制，并明确显示正在构建；失败不会伪装成空记录。手动“更新本地索引”后，需要点击“开始回看”读取更新状态，不自动轮询或重试。
-- 同一次比较绑定打开的 SQLite 索引元数据摘要。续页时如果摘要变化返回 409，要求重新回看；已显示的结果在单列失败时保留，不混合索引版本。页面离开、重新查询和账号切换均使旧请求失效并取消请求，账号切换清空旧内容。
-- 后端通过 `account_to_thread` 和现有快照作用域读取指定账号目录；接口复用本机访问限制。日期沿用应用所在电脑的本地时区语义，结束日期转换成次日零点的排他上界。不支持的本地日期、反向区间、非法分页返回 422。
+- The feature uses the existing `message_meta` time index and `message_fts.payload_json`. Years are obtained from the earliest/latest times and existence queries for each year's range. The chat directory reads only conversation identifiers in the index. Message bodies are read by date range with pagination; no full-history body scan was added.
+- Ordinary chats and group chats visible in the current account's index are included; public accounts and hidden conversations are excluded. The interface shows the chat and date scope actually applied. Unsubmitted form edits do not change the query parameters of existing pagination.
+- Results show a local decrypted-message index snapshot. The page displays the index creation time and staleness; an existing older index is not described as current data. When no index has been built yet, the existing build mechanism is used and the building state is shown explicitly. Failures are not represented as empty records. After manually selecting "Update Local Index", click "Start Looking Back" to read the updated state; there is no automatic polling or retry.
+- Each comparison is bound to the metadata digest of the opened SQLite index. If the digest changes during pagination, the request returns 409 and requires starting the comparison again. Results already displayed are retained when a single column fails, without mixing index versions. Leaving the page, querying again, or switching accounts invalidates and cancels old requests; account switching clears old content.
+- The backend reads the specified account directory through `account_to_thread` and the existing snapshot scope. Endpoints reuse local-machine access restrictions. Dates use the local time zone of the computer running the application; the end date becomes the exclusive upper bound at midnight of the following day. Unsupported local dates, reversed intervals, and invalid pagination return 422.
 
-## 验证记录
+## Verification Record
 
-2026-10-13：新增 `tests/test_time_machine.py` 的 7 项受控 SQLite / API 验证通过；`frontend/tests/time-machine.test.js` 的 10 项组件与异步状态验证通过。覆盖日期首尾、闰日、跨年范围、同秒分页、账号隔离、迟到响应、索引版本变更、构建/数据损坏失败、隐私遮罩、图片加载失败、撤回标记和导航失败撤回目标。前端机械检测仅报告原消息引用的 `blockquote` 边线，保留其语义区分。
+2026-10-13: The 7 new controlled SQLite / API checks in `tests/test_time_machine.py` passed, as did the 10 component and asynchronous-state checks in `frontend/tests/time-machine.test.js`. Coverage includes date endpoints, leap days, ranges crossing years, pagination within the same second, account isolation, late responses, index version changes, build/data-corruption failures, privacy masking, image-loading failures, revocation markers, and clearing the navigation target after navigation failure. The frontend mechanical check reported only the `blockquote` border used for original-message quotes; it was retained for its semantic distinction.
 
-这些验证没有证明用户真实微信历史的完整性、真实图片可读性、聊天页最终定位成功或安装包验收；应用整体构建与页面截图由本次功能集成阶段统一执行。索引内容的完整性继续受已解密、已导入和已建索引数据范围限制。
+These checks do not prove the completeness of users' real WeChat history, real image readability, successful final positioning on the chat page, or package acceptance. The overall application build and page screenshots are performed jointly during integration of this feature. Index completeness remains limited to the data that has been decrypted, imported, and indexed.

@@ -1,16 +1,16 @@
-# RTX 5060 faster-whisper CUDA 验收说明
+# RTX 5060 faster-whisper CUDA acceptance guide
 
-状态：实现完成，待 RTX 5060 实机验收。更新：2026-07-29。
+Status: implementation complete; RTX 5060 hardware acceptance pending. Updated: 2026-07-29.
 
-## 适用范围
+## Scope
 
-本项目的语音转文字使用 `faster-whisper` 和 CTranslate2，不使用 PyTorch。因此，同类 PyTorch 音色克隆项目采用的 `cu128` wheel 安装路线不能直接复制到这里；本说明只复用其 RTX 50 系显卡驱动、磁盘、模型缓存与验收原则。
+This project's speech-to-text feature uses `faster-whisper` and CTranslate2, rather than PyTorch. The `cu128` wheel installation procedure used by comparable PyTorch voice-cloning projects therefore cannot be copied directly; this guide adopts only their RTX 50-series driver, disk, model-cache, and acceptance principles.
 
-默认设备是 CPU `int8`。在有 NVIDIA GPU 的机器上，设置页可选择 NVIDIA GPU；首次识别会使用 CUDA `float16` 加载模型。CUDA 探测或模型初始化失败时，会自动改用 CPU `int8`，不影响语音播放、聊天查看或导出任务。
+The default device is CPU `int8`. On a machine with an NVIDIA GPU, select NVIDIA GPU in Settings; the first transcription loads the model with CUDA `float16`. If CUDA detection or model initialization fails, the existing implementation automatically switches to CPU `int8` without disrupting voice playback, chat viewing, or export tasks.
 
-## 服务器前置检查
+## Server prerequisites
 
-先在目标机上执行只读检查：
+Start with read-only checks on the target machine:
 
 ```bash
 nvidia-smi
@@ -19,21 +19,21 @@ ffmpeg -version
 df -h
 ```
 
-`nvidia-smi` 必须能列出 RTX 5060。若它不可用，先由服务器管理员修复 NVIDIA driver；不要通过反复重装 Python 包排查驱动问题。
+`nvidia-smi` must list the RTX 5060. If it is unavailable, ask the server administrator to repair the NVIDIA driver first; repeatedly reinstalling Python packages is not a way to diagnose driver problems.
 
-本项目不需要安装 `torch`、`torchaudio` 或复用音色克隆项目的 wheelhouse。安装当前项目的语音依赖：
+This project does not require `torch`, `torchaudio`, or the voice-cloning project's wheelhouse. Install this project's current voice dependencies:
 
 ```bash
 uv sync --no-editable --extra voice-transcription
 ```
 
-当前锁定的 `CTranslate2 4.8.1` 在 Linux GPU 环境需要 NVIDIA driver、CUDA 12.x 和 cuDNN 9 运行库；PyTorch 的 `cu128` wheel 不会为 CTranslate2 提供这些库。先完成只读探测，再由服务器管理员或已获授权的维护人员按 CTranslate2 对应版本的官方安装说明补齐运行库。若采用 PyPI 的用户级 CUDA/cuDNN 包，也应只安装到本项目虚拟环境，并在启动后端的同一用户进程中设置其库路径；不要修改系统 `/usr`、全局 `LD_LIBRARY_PATH` 或共享 CUDA 安装。
+The currently pinned `CTranslate2 4.8.1` requires the NVIDIA driver, CUDA 12.x, and cuDNN 9 runtime libraries in a Linux GPU environment. PyTorch's `cu128` wheel does not supply these libraries to CTranslate2. Complete the read-only checks first, then have the server administrator or an authorized maintainer install the missing runtimes according to the official installation instructions for the matching CTranslate2 version. If using user-level CUDA/cuDNN packages from PyPI, install them only into this project's virtual environment and configure their library paths in the same user process that starts the backend. Do not modify system `/usr`, global `LD_LIBRARY_PATH`, or a shared CUDA installation.
 
-## 模型准备
+## Model preparation
 
-当前默认模型是 `Systran/faster-whisper-medium`，磁盘约 1.43 GiB。生产验收前应将模型放进目标机 Hugging Face 缓存，或将 `WECHAT_TOOL_WHISPER_MODEL` 指向完整的本地模型目录；默认禁止首次识别联网下载。
+The current default model is `Systran/faster-whisper-medium`, approximately 1.43 GiB on disk. Before production acceptance, place it in the target machine's Hugging Face cache or point `WECHAT_TOOL_WHISPER_MODEL` to a complete local model directory. Network downloads during the first transcription are disabled by default.
 
-建议把缓存放在数据盘，例如：
+A data disk is a suitable cache location, for example:
 
 ```bash
 export HF_HOME=/mnt/sdb/xwechat/hf-cache
@@ -41,11 +41,11 @@ export WECHAT_TOOL_WHISPER_MODEL=medium
 export WECHAT_TOOL_WHISPER_ALLOW_DOWNLOAD=0
 ```
 
-如果缓存尚未准备好，可在已获联网许可的维护窗口临时把 `WECHAT_TOOL_WHISPER_ALLOW_DOWNLOAD=1`，完成下载后恢复为 `0`。模型与缓存目录包含本地运行资产，不要提交到 Git。
+If the cache is not ready, temporarily set `WECHAT_TOOL_WHISPER_ALLOW_DOWNLOAD=1` during a maintenance window with network authorization, then restore it to `0` after downloading. Models and cache directories are local runtime assets and must not be committed to Git.
 
-## CUDA 验收
+## CUDA acceptance
 
-启动后端后，先检查 CTranslate2 是否能识别 CUDA：
+After starting the backend, first check whether CTranslate2 can detect CUDA:
 
 ```bash
 python - <<'PY'
@@ -54,39 +54,39 @@ print("cuda device count:", ctranslate2.get_cuda_device_count())
 PY
 ```
 
-期望设备数量大于零。然后打开应用的“设置 -> 语音转文字”：
+The expected device count is greater than zero. Then open **Settings → Speech to text** in the application:
 
-1. 页面应显示检测到的 NVIDIA GPU；RTX 5060 名称会由 `nvidia-smi` 提供。
-2. 选择“NVIDIA GPU”。该偏好会保存到应用 `output/runtime_settings.json`。
-3. 对一条清晰中文微信语音点击“转文字”，或用同一会话开启“语音转文字”导出。
-4. 重新打开设置页，确认“实际”显示为“NVIDIA GPU”。
-5. 导出结果仍需包含可播放的 `media/voices/*.mp3` 与中文转写文本。
+1. The page should show the detected NVIDIA GPU; `nvidia-smi` supplies the RTX 5060 name.
+2. Select **NVIDIA GPU**. The preference is saved in the application's `output/runtime_settings.json`.
+3. Click **Transcribe** on a clear Chinese WeChat voice message, or enable **Speech to text** when exporting the same conversation.
+4. Reopen Settings and confirm that **Actual device** shows **NVIDIA GPU**.
+5. The export must still include playable `media/voices/*.mp3` files and Chinese transcription text.
 
-若 CUDA 探测通过但模型初始化失败，设置页会保留“NVIDIA GPU”为已选设备，并显示自动回退原因；“实际”应显示为 CPU。此时语音转写仍应成功，随后应记录 CTranslate2、NVIDIA driver 和 CUDA 运行库版本再排查。
+If CUDA detection passes but model initialization fails, Settings retains **NVIDIA GPU** as the selected device and shows the automatic fallback reason; **Actual device** should show CPU. Transcription should still succeed. Record the CTranslate2, NVIDIA driver, and CUDA runtime versions before investigating.
 
-## 配置优先级
+## Configuration priority
 
-推理设备优先级如下：
+Inference-device priority is:
 
 ```text
-WECHAT_TOOL_WHISPER_DEVICE 环境变量
-> 设置页保存的设备偏好
-> 默认 CPU
+WECHAT_TOOL_WHISPER_DEVICE environment variable
+> device preference saved in Settings
+> default CPU
 ```
 
-部署脚本若设置了 `WECHAT_TOOL_WHISPER_DEVICE`，界面会标记为“由启动环境变量固定”，避免用户误以为修改已生效。未设置该环境变量时，使用设置页选择 CPU 或 NVIDIA GPU。
+If a deployment script sets `WECHAT_TOOL_WHISPER_DEVICE`, the interface labels the device **Fixed by startup environment variable**, so users can see that changing the preference has not taken effect. When this variable is absent, select CPU or NVIDIA GPU in Settings.
 
-## 验收记录
+## Acceptance record
 
-在 RTX 5060 服务器完成实测后，记录以下信息：
+After testing on the RTX 5060 server, record:
 
 ```text
-nvidia-smi 的 GPU 名称、Driver Version、CUDA Version
-Python / faster-whisper / CTranslate2 版本
+GPU name, Driver Version, and CUDA Version from nvidia-smi
+Python / faster-whisper / CTranslate2 versions
 CTranslate2 CUDA device count
-设置页检测结果、已选设备、实际设备、是否发生回退
-单条语音首次识别耗时与缓存后二次识别耗时
-导出中的语音数量、成功/失败/缓存统计
+Settings detection result, selected device, actual device, and whether fallback occurred
+First-transcription duration and second-transcription duration with a warm cache
+Voice count and success/failure/cache statistics in the export
 ```
 
-不要为了制造回退场景而在共享服务器上卸载驱动、修改系统 CUDA、重启机器或停止他人进程。自动回退路径由本地单元测试覆盖；服务器只验证真实 NVIDIA GPU 成功路径。
+Do not manufacture a fallback scenario on a shared server by uninstalling drivers, changing system CUDA, rebooting the machine, or stopping other people's processes. Local unit tests cover the automatic fallback path; server acceptance checks the real NVIDIA GPU success path only.
