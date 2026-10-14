@@ -2,10 +2,12 @@
   <div ref="answer" class="agent-answer">
     <div class="agent-markdown" v-html="rendered" @error.capture="hideMissingAvatar" @click="onReference" @pointerover="hoverReference" @pointerout="leaveReference" @focusin="hoverReference" @focusout="leaveReference" />
     <div v-if="selected" :key="selected.source" :id="previewId" ref="preview" popover="manual" class="agent-citation-preview" role="dialog" aria-label="消息来源预览" @pointerenter="cancelClose" @pointerleave="leaveReference" @keydown.esc.stop.prevent="closePreview(true)">
-      <header><AgentAvatar :class="{ 'privacy-blur': privacyMode }" :path="selected.sender_avatar_path" :name="selected.sender" /><div :class="{ 'privacy-blur': privacyMode }"><strong>{{ selected.sender }}</strong><small>{{ selected.name || selected.username }} · {{ selected.time ? new Date(selected.time * 1000).toLocaleString() : '未知时间' }}</small></div><button type="button" aria-label="关闭来源预览" @click="closePreview(true)"><X :size="16" :stroke-width="1.8" aria-hidden="true" /></button></header>
-      <p class="agent-citation-text" :class="{ 'privacy-blur': privacyMode }">{{ selected.text }}</p><small v-if="selected.excerpt">此处为原文节选，可定位查看完整消息。</small>
+      <header><AgentAvatar v-if="selected.kind !== 'library'" :class="{ 'privacy-blur': privacyMode }" :path="selected.sender_avatar_path" :name="selected.sender" /><div :class="{ 'privacy-blur': privacyMode }"><template v-if="selected.kind === 'library'"><strong>{{ selected.title }}</strong></template><template v-else><strong>{{ selected.sender }}</strong><small>{{ selected.name || selected.username }} · {{ selected.time ? new Date(selected.time * 1000).toLocaleString() : '未知时间' }}</small></template></div><button type="button" aria-label="关闭来源预览" @click="closePreview(true)"><X :size="16" :stroke-width="1.8" aria-hidden="true" /></button></header>
+      <AgentLibraryScopeNotice v-if="selected.kind === 'library'" :scope="selected.library_scope" />
+      <AgentLibraryMaterial v-if="selected.kind === 'library'" :source="selected" :read="pinned ? navigation?.readMaterial : undefined" />
+      <template v-else><p class="agent-citation-text" :class="{ 'privacy-blur': privacyMode }">{{ selected.text }}</p><small v-if="selected.excerpt">此处为原文节选，可定位查看完整消息。</small></template>
       <p v-if="locateError" class="agent-citation-error" role="alert">{{ locateError }}</p>
-      <button type="button" class="agent-citation-locate" :disabled="locating" :aria-busy="locating" :aria-label="locating ? '正在定位原消息' : locateError ? '重试定位原消息' : '定位原消息'" @click="locateSelected">
+      <button v-if="selected.kind !== 'library'" type="button" class="agent-citation-locate" :disabled="locating" :aria-busy="locating" :aria-label="locating ? '正在定位原消息' : locateError ? '重试定位原消息' : '定位原消息'" @click="locateSelected">
         <LoaderCircle v-if="locating" class="agent-icon-spin" :size="16" :stroke-width="1.8" aria-hidden="true" />
         <Check v-else-if="located" :size="16" :stroke-width="1.8" aria-hidden="true" />
         <ExternalLink v-else :size="16" :stroke-width="1.8" aria-hidden="true" />
@@ -29,6 +31,8 @@ import { useApiBase } from '~/composables/useApiBase'
 import { Check, ExternalLink, LoaderCircle, X } from '@lucide/vue'
 import AgentImageViewer from './AgentImageViewer.vue'
 import AgentAvatar from './AgentAvatar.vue'
+import AgentLibraryScopeNotice from './AgentLibraryScopeNotice.vue'
+import AgentLibraryMaterial from './AgentLibraryMaterial.vue'
 import ContactProfileCard from './ContactProfileCard.vue'
 const props = defineProps({ text: { type: String, default: '' }, citations: { type: Array, default: () => [] }, streaming: Boolean, references: { type: Array, default: () => [] } })
 const emit = defineEmits(['locate'])
@@ -73,7 +77,8 @@ const locateImage = async source => {
   } catch (error) { imageLocateError.value = error?.message || '暂时无法定位，请重试' }
   finally { locatingImage.value = false }
 }
-let pinned = false, closeTimer
+const pinned = ref(false)
+let closeTimer
 const cancelClose = () => clearTimeout(closeTimer)
 const personDetails = button => answerReferences.value.find(item => item.kind === 'person' && item.id === button?.dataset.person)
 const openPersonProfile = button => {
@@ -94,7 +99,7 @@ const leaveReference = event => {
     if (!person.contains(event.relatedTarget)) profileState?.onMentionMouseLeave?.()
     return
   }
-  if (!pinned && !preview.value?.contains(event.relatedTarget)) { cancelClose(); closeTimer = setTimeout(() => closePreview(), 180) }
+  if (!pinned.value && !preview.value?.contains(event.relatedTarget)) { cancelClose(); closeTimer = setTimeout(() => closePreview(), 180) }
 }
 const hoverReference = event => {
   const person = event.target.closest('button[data-person]')
@@ -102,7 +107,7 @@ const hoverReference = event => {
     if (!person.contains(event.relatedTarget)) openPersonProfile(person)
     return
   }
-  cancelClose(); if (!pinned && event.target.closest('button[data-source]') !== trigger) void onCitation(event, false)
+  cancelClose(); if (!pinned.value && event.target.closest('button[data-source]') !== trigger) void onCitation(event, false)
 }
 const onReference = event => {
   const image = event.target.closest('button[data-image]')
@@ -168,7 +173,7 @@ let trigger = null, observer = null, revision = 0
 // 原始 HTML、远程图片和自动链接均禁用；只渲染本地已核验的来源按钮。
 const rendered = computed(() => renderAgentMarkdown(props.text, props.citations || [], props.streaming, answerReferences.value, apiBase))
 const closePreview = (restoreFocus = false) => {
-  ++revision; cancelClose(); pinned = false
+  ++revision; cancelClose(); pinned.value = false
   observer?.disconnect(); observer = null
   window.removeEventListener('scroll', positionPreview, true)
   window.removeEventListener('resize', positionPreview)
@@ -215,20 +220,20 @@ const onCitation = async (event, pin = true, personSource = null) => {
     return
   }
   if (trigger === button && selected.value) {
-    if (pinned && pin) closePreview(true)
+    if (pinned.value && pin) closePreview(true)
     else {
-      pinned = pin
-      if (pin) Promise.resolve().then(() => navigation?.prepare?.(source)).catch(() => {})
+      pinned.value = pin
+      if (pin && source.kind !== 'library') Promise.resolve().then(() => navigation?.prepare?.(source)).catch(() => {})
     }
     return
   }
   closePreview()
-  trigger = button; pinned = pin
+  trigger = button; pinned.value = pin
   selected.value = source; selectedNumber.value = sourceNumber
   locating.value = false; located.value = false; locateError.value = ''
   const current = revision
   // 悬停只展示已随回答返回的摘要；用户点击固定后才读取原消息上下文，避免扫过编号时形成请求风暴。
-  if (pin) Promise.resolve().then(() => navigation?.prepare?.(source)).catch(() => {})
+  if (pin && source.kind !== 'library') Promise.resolve().then(() => navigation?.prepare?.(source)).catch(() => {})
   await nextTick()
   if (current !== revision || !preview.value) return
   button.setAttribute('aria-expanded', 'true'); button.setAttribute('aria-controls', previewId)

@@ -6,7 +6,8 @@ from pathlib import PurePosixPath
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import StreamingResponse
 
-from .ai import local_only, account_name
+from .ai import local_only, account_name as chat_account_name
+from ..application_accounts import application_account_name as account_name
 from ..ai.agent_schemas import ThreadInput, ThreadUpdate, TurnInput, RestartInput
 from ..ai.agent_service import get_agent_service
 
@@ -19,6 +20,14 @@ def thread(id, account):
         return get_agent_service().public_thread(id, account_name(account))
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from None
+
+
+def execution_account(id, account):
+    owner = account_name(account)
+    run = get_agent_service().run(id, owner)
+    if run.get('library_scope') is None:
+        chat_account_name(owner)
+    return owner
 
 
 @router.get('/threads')
@@ -52,11 +61,12 @@ async def create_thread(body: ThreadInput):
         while not lock.acquire(blocking=False):
             await asyncio.sleep(.05)
         try:
-            owner = account_name(body.account)
+            owner = account_name(body.account) if body.library_scope is not None else chat_account_name(body.account)
             # 删除完成后再验证账号；重新导入的同名账号可恢复写入。
             service.ai.deleted_accounts.discard(owner)
             service.store.revoked_accounts.discard(owner)
-            return await service.create_thread(owner, body.username, body.title, origin=body.origin, chat_scope=body.chat_scope)
+            return await service.create_thread(owner, body.username, body.title, origin=body.origin, chat_scope=body.chat_scope,
+                library_scope=body.library_scope.model_dump() if body.library_scope is not None else None)
         finally:
             lock.release()
     except ValueError as exc:
@@ -87,6 +97,8 @@ async def delete_thread(id: str, account: str):
 @router.post('/threads/{id}/messages')
 async def submit(id: str, account: str, body: TurnInput):
     record = thread(id, account)
+    if record.get('library_scope') is None:
+        chat_account_name(record['account'])
     try:
         run = await get_agent_service().submit(id, record['account'], body.model_dump())
         return get_agent_service().public_run(run['id'], record['account'])
@@ -106,7 +118,7 @@ def get_run(id: str, account: str):
 async def restart_run(id: str, account: str, body: RestartInput):
     service = get_agent_service()
     try:
-        owner = account_name(account)
+        owner = execution_account(id, account)
         run = await service.restart(id, owner, body.request_id)
         return service.public_run(run['id'], owner)
     except ValueError as exc:
@@ -117,7 +129,7 @@ async def restart_run(id: str, account: str, body: RestartInput):
 async def resume_run(id: str, account: str):
     service = get_agent_service()
     try:
-        account = account_name(account)
+        account = execution_account(id, account)
         if service.run(id, account).get('engine_version') != 3:
             raise HTTPException(409, {'code': 'legacy_restart_required', 'message': '旧任务不能继续，请使用新引擎重新运行。',
                 'restart_url': f'/api/ai/agent/runs/{id}/restart'})
@@ -136,6 +148,7 @@ async def run_action(id: str, action: str, account: str):
         if action == 'stop':
             await service.stop_run(id, account)
         elif action in ('continue', 'resume'):
+            execution_account(id, account)
             if service.run(id, account).get('engine_version') != 3:
                 raise HTTPException(409, {'code': 'legacy_restart_required', 'message': '旧任务不能继续，请使用新引擎重新运行。',
                     'restart_url': f'/api/ai/agent/runs/{id}/restart'})

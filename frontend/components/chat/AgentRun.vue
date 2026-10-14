@@ -1,5 +1,6 @@
 <template>
   <section class="agent-reply agent-run">
+    <AgentLibraryScopeNotice v-if="run.library_scope" :scope="run.library_scope" :coverage="run.topic_coverage" />
     <div class="not-prose max-w-prose space-y-4 agent-process-panel" :class="{ 'is-open': open, 'is-running': running }" aria-label="执行过程">
     <button class="agent-process-toggle" type="button" :aria-expanded="open" :aria-controls="`process-${run.id}`" :title="open ? '收起执行过程' : '展开执行过程'" @click="toggle">
       <span class="agent-process-title">{{ running ? '执行中' : '执行过程' }}</span>
@@ -13,7 +14,7 @@
       <template v-for="item in groupedRecords" :key="item.id">
         <AgentSubtasks v-if="(run.subtasks?.total || run.subtasks?.scanning || run.subtasks?.planned) && item.id === firstTaskRecord" :run="run" :now="now" @locate="$emit('locate', $event)" />
         <AgentToolCall v-else-if="item.kind === 'tool' && !(item.action === 'task' && run.subtasks?.total)" :items="item.calls" :now="now" :name-for="nameFor" :view-state="viewState" />
-        <div v-else-if="item.kind === 'progress'" class="agent-progress-note" :class="{'is-superseded':item.status === 'superseded'}" role="group" aria-label="阶段性回复"><AgentAnswer :text="item.text" :citations="run.citations || []" :references="run.references || []" :streaming="item.status === 'running'" @locate="$emit('locate', $event)" /><small v-if="item.status === 'superseded'">已根据补充要求调整</small></div>
+        <div v-else-if="item.kind === 'progress'" class="agent-progress-note" :class="{'is-superseded':item.status === 'superseded'}" role="group" aria-label="阶段性回复"><AgentAnswer :text="item.text" :citations="citations" :references="run.references || []" :streaming="item.status === 'running'" @locate="$emit('locate', $event)" /><small v-if="item.status === 'superseded'">已根据补充要求调整</small></div>
         <div v-else-if="item.kind === 'supplement'" class="agent-supplement"><p>{{ item.text }}</p><small>{{ item.status === 'applied' ? '补充要求已应用' : '已收到补充要求' }}</small></div>
         <template v-else-if="isCompaction(item)"><AgentContextCompaction v-if="open" :item="item" :run="run" :view-state="viewState" /></template>
         <p v-else-if="item.kind === 'notice'" class="agent-process-notice" role="status">{{ item.text }}<small v-if="item.attempt"> · 第 {{ item.attempt }} 次尝试</small></p>
@@ -33,12 +34,12 @@
     </div>
     </div>
     <div v-if="run.error" class="agent-error" role="alert">{{ run.error }}<details v-if="run.error_info?.diagnostic_id"><summary>诊断信息</summary><small>{{ run.error_info.category }} · {{ run.error_info.diagnostic_id }}</small></details></div>
-    <div v-if="run.answer" class="agent-final-answer"><h3 v-if="run.status !== 'completed'" class="agent-answer-heading">{{ running ? '正在回答' : '未完成的回答' }}</h3><AgentAnswer :text="run.answer" :citations="run.citations || []" :references="run.references || []" :streaming="running" @locate="$emit('locate', $event)" /></div>
+    <div v-if="run.answer" class="agent-final-answer"><h3 v-if="run.status !== 'completed'" class="agent-answer-heading">{{ running ? '正在回答' : '未完成的回答' }}</h3><AgentAnswer :text="run.answer" :citations="citations" :references="run.references || []" :streaming="running" @locate="$emit('locate', $event)" /></div>
 
     <div v-if="run.choices?.length" class="agent-choices"><button v-for="choice in run.choices" :key="choice.username" type="button" @click="$emit('choose', choice)">{{ choice.name }}<small>{{ choice.username }}</small></button></div>
     <div v-if="!running" class="agent-result-actions">
       <div v-if="run.answer" class="agent-answer-footer">
-        <AgentCopyAction :text="run.answer" :citations="run.citations || []" :references="run.references || []" />
+        <AgentCopyAction :text="run.answer" :citations="citations" :references="run.references || []" />
         <span v-if="finalSummary" class="agent-final-summary" :title="finalSummaryTitle">{{ finalSummary }}</span>
       </div>
       <button v-if="!running && latest && run.error_info?.action === 'settings'" type="button" @click="$emit('settings')">检查 AI 服务</button>
@@ -58,8 +59,10 @@ import AgentCopyAction from './AgentCopyAction.vue'
 import { groupTimelineTools } from '~/utils/agentTimeline'
 import AgentAnswer from './AgentAnswer.vue'
 import AgentContextCompaction from './AgentContextCompaction.vue'
+import AgentLibraryScopeNotice from './AgentLibraryScopeNotice.vue'
 const props = defineProps({run:{type:Object,required:true},now:Number,nearBottom:Boolean,latest:Boolean,nameFor:{type:Function,default:()=>''},viewState:{type:Object,required:true}})
 defineEmits(['locate','choose','continue','restart','settings'])
+const citations = computed(() => (props.run.citations || []).map(source => source.kind === 'library' ? { ...source, run_id: props.run.id, run_version: props.run.version } : source))
 const running = computed(() => ['queued','running'].includes(props.run.status))
 const formatTokenCount = value => {
   if (!Number.isFinite(value) || value < 0) return '未知'

@@ -290,10 +290,12 @@ async def create_item(body: Item, account: str, request: Request):
             raise HTTPException(409, '分析报告的原始引用证据缺失')
         content = run['answer']
         metadata_fields = ('id', 'version', 'created', 'started_at', 'finished_at', 'query_scope', 'query_filters', 'time_range',
-                           'timezone_offset', 'read_count', 'coverage_state', 'coverage_warnings', 'source_count', 'references', 'citations')
+                           'timezone_offset', 'read_count', 'coverage_state', 'coverage_warnings', 'source_count', 'references', 'citations',
+                           'library_scope', 'topic_coverage')
         report = {key: report[key] for key in metadata_fields if key in report}
         report['answer'] = content
-        evidence_keys = ('source', 'username', 'name', 'sender', 'sender_id', 'time', 'text', 'anchor', 'kind', 'media')
+        evidence_keys = ('source', 'username', 'name', 'sender', 'sender_id', 'time', 'text', 'anchor', 'kind', 'media',
+                         'library_scope', 'library_item_id', 'material_kind', 'component', 'title', 'verified', 'coverage', 'original_source', 'extraction')
         report['evidence'] = [{key: original[key] for key in evidence_keys if key in original} for original in originals.values()]
         report['model_metadata'] = {role: {key: run[role][key] for key in ('name', 'provider', 'model', 'model_id') if key in run[role]}
                                     for role in ('profile', 'vision') if role in run}

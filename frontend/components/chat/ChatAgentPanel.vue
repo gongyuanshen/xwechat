@@ -29,7 +29,7 @@
       <p v-if="connectionNotice" class="agent-error" role="status">{{ connectionNotice }}</p>
       <p v-if="error" class="agent-error" role="alert">{{ error }}</p>
       <p v-if="threadLoading" class="agent-loading" role="status">正在打开对话…</p>
-      <div v-if="pageEmpty" class="agent-page-welcome"><h1>你的本地聊天记忆，随时可查</h1><p>查找往事、梳理进展，回答附上聊天原文。</p></div>
+      <div v-if="pageEmpty" class="agent-page-welcome"><h1>{{ sourceMode === 'library' ? '围绕保存的专题材料提问' : '你的本地聊天记忆，随时可查' }}</h1><p>{{ sourceMode === 'library' ? '选择专题与保存版本，回答引用该版本的材料。' : '查找往事、梳理进展，回答附上聊天原文。' }}</p></div>
       <AssistantThread v-show="!pageEmpty" :key="thread?.id || selectionKey" :messages="assistantMessages" :running="running" :expanded="expanded || isPage" @scroll="onScroll" @ready="onThreadReady">
         <template #welcome>
         <div v-if="!isPage && !thread?.messages?.length && !threadLoading" class="agent-welcome"><span class="agent-welcome-symbol"><MessageCircleMore :size="16" :stroke-width="1.8" aria-hidden="true" /></span><h3>想从聊天里了解什么？</h3><p>查找消息、梳理进展，或继续追问。<br>从当前聊天开始，可按需查找其他聊天，回答附上原文出处。</p><button v-for="q in suggestions" :key="q" type="button" :disabled="sending || running || !account || !contact?.username" @click="sendSuggestion(q)">{{ q }}<ArrowUp :size="16" :stroke-width="1.8" aria-hidden="true" /></button></div>
@@ -43,27 +43,32 @@
           <section v-else class="agent-reply">
             <button v-if="pastRunLoads[pastRunKey(message.turn.id)] === 'failed'" type="button" class="agent-process-toggle" @click="loadPastRun(message.turn.id)">处理过程加载失败，点击重试</button>
             <p v-else class="agent-loading" role="status">正在加载处理过程…</p>
-            <AgentAnswer v-if="message.turn.answer" :text="message.turn.answer.text" :citations="message.turn.answer.citations" :references="message.turn.answer.references" @locate="locate" />
+            <AgentAnswer v-if="message.turn.answer" :text="message.turn.answer.text" :citations="(message.turn.answer.citations || []).map(source => source.kind === 'library' ? { ...source, run_id: message.turn.id } : source)" :references="message.turn.answer.references" @locate="locate" />
             <div v-if="message.turn.answer?.text" class="agent-result-actions"><AgentCopyAction :text="message.turn.answer.text" :citations="message.turn.answer.citations" :references="message.turn.answer.references" /></div>
           </section>
         </template>
       </AssistantThread>
       <button v-if="newContent" type="button" class="agent-new-content" @click="toBottom">有新内容 <ArrowDown :size="16" :stroke-width="1.8" aria-hidden="true" /></button>
       <footer class="agent-composer">
+        <AgentLibraryScopeNotice v-if="isPage && libraryScope" :scope="libraryScope" />
+        <p v-if="isPage && sourceMode === 'library'" class="agent-scope-lock">仅查阅所选保存版本；不读取当前资料夹、其他版本或聊天记录。</p>
+        <p v-if="isPage && !canReadChats" class="agent-scope-lock">当前账号仅有恢复的应用资料；导入聊天数据后可查阅聊天记录。</p>
         <div class="agent-input-box">
-          <textarea ref="draftInput" v-model="draft" aria-label="给 AI 助手的消息" :placeholder="running ? '可以补充要求，例如：只看上周的…' : isPage ? '想从聊天里了解什么？' : (contact?.username ? '向当前聊天提问…' : '请先选择一个聊天')" rows="1" @input="resizeDraft" @keydown.enter.exact="sendOnEnter" @compositionstart="composing = true" @compositionend="composing = false" />
+          <textarea ref="draftInput" v-model="draft" aria-label="给 AI 助手的消息" :placeholder="running ? '可以补充要求，例如：只看上周的…' : sourceMode === 'library' ? (libraryScope ? '向此版本的材料提问…' : '请先选择专题保存版本') : isPage ? '想从聊天里了解什么？' : (contact?.username ? '向当前聊天提问…' : '请先选择一个聊天')" rows="1" @input="resizeDraft" @keydown.enter.exact="sendOnEnter" @compositionstart="composing = true" @compositionend="composing = false" />
           <div class="agent-input-actions">
-            <AgentChatScopePicker v-if="isPage" :account="account" :model-value="chatScope" :disabled="running || sending || threadLoading" @update:model-value="changeChatScope" @loaded="directory = $event" />
+            <select v-if="isPage" class="agent-source-mode" aria-label="资料来源" :value="sourceMode" :disabled="running || sending || threadLoading" @change="changeSourceMode($event.target.value)"><option value="chat" :disabled="!canReadChats">{{ canReadChats ? '聊天记录' : '聊天记录（未导入）' }}</option><option value="library">专题版本</option></select>
+            <AgentChatScopePicker v-if="isPage && sourceMode === 'chat' && canReadChats" :account="account" :model-value="chatScope" :disabled="running || sending || threadLoading" @update:model-value="changeChatScope" @loaded="directory = $event" />
+            <AgentLibraryScopePicker v-if="isPage && sourceMode === 'library'" :key="`${selectionKey}:${thread?.id || saved.newKeys[selectionKey]}`" :account="account" :model-value="libraryScope" :disabled="running || sending || threadLoading" @update:model-value="changeLibraryScope" />
             <AgentContextRing :budget="run?.context_budget" />
             <AgentModelPicker v-model="modelChoice" :profiles="profiles" :profiles-loading="profilesLoading" :profiles-error="profilesError" @refresh="loadProfiles" />
-            <button type="button" class="agent-send" :disabled="running ? stopping : (threadLoading || sending || !draft.trim() || !account || (!isPage && !contact?.username))" :aria-label="running ? '停止处理' : '发送问题'" @click="primaryAction"><span v-if="running" class="agent-stop-icon" aria-hidden="true" /><ArrowUp v-else :size="16" :stroke-width="1.8" aria-hidden="true" /></button>
+            <button type="button" class="agent-send" :disabled="running ? stopping : (threadLoading || sending || !draft.trim() || !account || !sourceReady || (!isPage && !contact?.username))" :aria-label="running ? '停止处理' : '发送问题'" @click="primaryAction"><span v-if="running" class="agent-stop-icon" aria-hidden="true" /><ArrowUp v-else :size="16" :stroke-width="1.8" aria-hidden="true" /></button>
           </div>
         </div>
-        <small v-if="isPage && running" class="agent-scope-lock" role="status">停止处理后可更改聊天范围</small>
+        <small v-if="isPage && running" class="agent-scope-lock" role="status">{{ sourceMode === 'library' ? '停止处理后可更改专题版本' : '停止处理后可更改聊天范围' }}</small>
         <small v-if="modelSelection.state.notice" class="agent-error" role="status">{{ modelSelection.state.notice }} <button v-if="modelSelection.state.dirty" type="button" @click="modelSelection.choose(modelChoice)">重试保存</button></small>
       </footer>
       </div>
-      <AgentSourceInspector v-if="inspectedSource" :source="inspectedSource.source" :number="inspectedSource.number" :prepare="prepareSource" :locate="locateSource" @close="closeInspector(true)" />
+      <AgentSourceInspector v-if="inspectedSource" :source="inspectedSource.source" :number="inspectedSource.number" :prepare="prepareSource" :locate="locateSource" :read-material="readMaterial" @close="closeInspector(true)" />
       </div>
     </template>
     </div>
@@ -87,12 +92,14 @@ import AgentModelPicker from './AgentModelPicker.vue'
 import AgentThreadList from './AgentThreadList.vue'
 import AgentAvatar from './AgentAvatar.vue'
 import AgentChatScopePicker from './AgentChatScopePicker.vue'
+import AgentLibraryScopePicker from './AgentLibraryScopePicker.vue'
+import AgentLibraryScopeNotice from './AgentLibraryScopeNotice.vue'
 import { useAgentPanelResize } from '~/composables/useAgentPanelResize'
 import { mergeTimeline, mergeReferenceData, mergeRunEvent } from '~/utils/agentTimeline'
 import { agentModelSelection } from '~/lib/agent-model-selection'
 import { ArrowDown, ArrowLeft, ArrowUp, Check, Ellipsis, History, Maximize2, MessageCircleMore, Minimize2, PanelLeft, SlidersHorizontal, SquarePen, Toolbox, X } from '@lucide/vue'
 import '~/assets/css/agent.css'
-const props = defineProps({ account: String, contact: Object, contacts: Array, focusTaskId: String, locateSource: Function, prepareSource: Function, profileState: Object, presentation: { type: String, default: 'panel' } })
+const props = defineProps({ account: String, contact: Object, contacts: Array, focusTaskId: String, locateSource: Function, prepareSource: Function, profileState: Object, presentation: { type: String, default: 'panel' }, canReadChats: { type: Boolean, default: true }, libraryTarget: Object })
 const isPage = computed(() => props.presentation === 'page')
 const emit = defineEmits(['close', 'locate', 'expanded'])
 provide('chatContactProfileState', props.profileState)
@@ -105,6 +112,8 @@ watch(() => props.account, () => { reportToSave.value = null }, { flush: 'sync' 
 saved.value.process ||= {}
 saved.value.views ||= {}
 saved.value.chatScopes ||= {}
+saved.value.libraryScopes ||= {}
+saved.value.sourceModes ||= {}
 saved.value.newKeys ||= {}
 const pageEmpty = computed(() => isPage.value && !thread.value?.messages?.length && !threadLoading.value)
 const stopping = ref(false)
@@ -164,8 +173,11 @@ const selectionKey = computed(() => isPage.value ? `page:${props.account}:agent`
 const draftKey = computed(() => `${selectionKey.value}:${thread.value?.id || (isPage.value ? saved.value.newKeys[selectionKey.value] ||= crypto.randomUUID() : 'new')}`)
 const draft = computed({ get: () => saved.value.drafts[draftKey.value] || '', set: value => { saved.value.drafts[draftKey.value] = value } })
 const chatScope = computed(() => thread.value ? thread.value.chat_scope : saved.value.chatScopes[selectionKey.value] ?? null)
+const libraryScope = computed(() => thread.value ? thread.value.library_scope : saved.value.libraryScopes[selectionKey.value])
+const sourceMode = computed(() => thread.value ? (thread.value.library_scope ? 'library' : 'chat') : saved.value.sourceModes[selectionKey.value] || (props.canReadChats ? 'chat' : 'library'))
+const sourceReady = computed(() => !isPage.value || (sourceMode.value === 'library' ? !!libraryScope.value : props.canReadChats))
 const nameFor = id => [props.contact, ...(props.contacts || []), ...directory.value].find(c => c?.username === id)?.name || id
-const describeThreadScope = item => item.chat_scope === null ? '所有聊天' : item.chat_scope.length === 1 ? nameFor(item.chat_scope[0]) : `${item.chat_scope.length} 个聊天`
+const describeThreadScope = item => item.library_scope ? `${item.library_scope.folder_name} · 第 ${item.library_scope.version_number} 版 · ${item.library_scope.version_name}` : item.chat_scope === null ? '所有聊天' : item.chat_scope.length === 1 ? nameFor(item.chat_scope[0]) : `${item.chat_scope.length} 个聊天`
 const avatarFor = username => username && props.account ? `/chat/avatar?${new URLSearchParams({account:props.account,username})}` : ''
 const contactUsername = computed(() => isPage.value ? '' : thread.value?.username || props.contact?.username || '')
 const contactName = computed(() => nameFor(contactUsername.value) || '当前聊天')
@@ -298,13 +310,13 @@ const refresh = async () => {
 const ensureThread = async () => {
   if (thread.value) return thread.value
   const account = props.account, key = selectionKey.value, oldDraft = draft.value, current = version
-  const body = isPage.value ? { account, username: '', origin: 'agent', chat_scope: chatScope.value } : { account, username: props.contact.username }
+  const body = isPage.value ? { account, username: '', origin: 'agent', ...(sourceMode.value === 'library' ? { library_scope: { folder_id: libraryScope.value.folder_id, version_id: libraryScope.value.version_id } } : { chat_scope: chatScope.value }) } : { account, username: props.contact.username }
   const created = await api.request('/agent/threads', {method:'POST',body})
   if (disposed || account !== props.account || key !== selectionKey.value || current !== version) throw new Error('聊天已切换，请在当前对话重新发送')
   saved.value.selected[key] = created.id; thread.value = created; saved.value.drafts[draftKey.value] = oldDraft; void loadHistory(); return created
 }
 const send = async () => {
-  if (threadLoading.value || sending.value || !props.account || !draft.value.trim() || (!isPage.value && !props.contact?.username)) return
+  if (threadLoading.value || sending.value || !props.account || !draft.value.trim() || !sourceReady.value || (!isPage.value && !props.contact?.username)) return
   if (new TextEncoder().encode(draft.value.trim()).length > 1048576) { error.value = '输入超过 1 MiB，请分次发送。'; return }
   const text = draft.value.trim(), oldKey = draftKey.value, sendKey = selectionKey.value, current = version, sendAccount = props.account
   sending.value = true
@@ -355,7 +367,7 @@ const newThread = () => guardAction(async () => {
   delete saved.value.selected[selectionKey.value]
   ++version; threadLoading.value = false; thread.value = null; run.value = null
   sending.value = false; stopping.value = false; pastRuns.value = {}; error.value = ''; syncWarning.value = ''
-  if (isPage.value) { saved.value.selected[selectionKey.value] = null; saved.value.chatScopes[selectionKey.value] = null; saved.value.newKeys[selectionKey.value] = crypto.randomUUID() }
+  if (isPage.value) { saved.value.selected[selectionKey.value] = null; saved.value.chatScopes[selectionKey.value] = null; delete saved.value.libraryScopes[selectionKey.value]; delete saved.value.sourceModes[selectionKey.value]; saved.value.newKeys[selectionKey.value] = crypto.randomUUID() }
   showHistory()
   if (!expanded.value) navigationOpen.value = false
   await toBottom(); draftInput.value?.focus()
@@ -369,8 +381,32 @@ const changeChatScope = scope => {
   saved.value.selected[selectionKey.value] = null
   saved.value.newKeys[selectionKey.value] = crypto.randomUUID()
   saved.value.chatScopes[selectionKey.value] = scope
+  saved.value.sourceModes[selectionKey.value] = 'chat'
+  delete saved.value.libraryScopes[selectionKey.value]
   draft.value = text
   void nextTick(() => draftInput.value?.focus())
+}
+const changeLibraryScope = scope => {
+  if (!isPage.value || running.value || sending.value || threadLoading.value) return
+  if (sourceMode.value === 'library' && libraryScope.value?.folder_id === scope.folder_id && libraryScope.value?.version_id === scope.version_id) return
+  startSource('library', scope)
+}
+const startSource = (source, scope = null) => {
+  const text = draft.value
+  rememberView(); closeInspector(); cancelRefreshRetry(); ++version
+  thread.value = null; run.value = null; pastRuns.value = {}; error.value = ''; syncWarning.value = ''; newContent.value = false
+  sending.value = false; stopping.value = false; threadLoading.value = false; pendingThreadId.value = ''
+  saved.value.selected[selectionKey.value] = null
+  saved.value.newKeys[selectionKey.value] = crypto.randomUUID()
+  saved.value.sourceModes[selectionKey.value] = source
+  saved.value.libraryScopes[selectionKey.value] = scope
+  saved.value.chatScopes[selectionKey.value] = null
+  draft.value = text
+  void nextTick(() => draftInput.value?.focus())
+}
+const changeSourceMode = source => {
+  if (running.value || sending.value || threadLoading.value || source === sourceMode.value || (source === 'chat' && !props.canReadChats)) return
+  startSource(source)
 }
 const togglePin = () => guardAction(async () => { if (pinned.value) { delete saved.value.pinned[props.account]; await loadSelection() } else { const t = await ensureThread(); saved.value.pinned[props.account] = t.id } })
 const locateSource = async source => {
@@ -382,7 +418,8 @@ const locateSource = async source => {
   return result
 }
 // 提供可等待的定位回调，让每条引用能准确显示进行中、成功与失败状态。
-provide('agentSourceNavigation', { locate: locateSource, prepare: source => props.prepareSource?.(source), inspect: inspectSource })
+const readMaterial = (source, offset) => api.request(`/agent/runs/${encodeURIComponent(source.run_id)}/materials/${encodeURIComponent(source.source)}`, { query: { account: props.account, version: source.run_version, offset } })
+provide('agentSourceNavigation', { locate: locateSource, prepare: source => props.prepareSource?.(source), inspect: inspectSource, readMaterial })
 const locate = source => guardAction(() => locateSource(source))
 const runAction = action => {
   const id = run.value.id, account = props.account, current = version
@@ -466,7 +503,7 @@ const deleteHistory = async item => {
     if (pendingThreadId.value === item.id) { ++version; threadLoading.value = false; pendingThreadId.value = '' }
     if (thread.value?.id === item.id) {
       ++version; threadLoading.value = false; thread.value = null; run.value = null
-      if (isPage.value) { saved.value.selected[selectionKey.value] = null; saved.value.chatScopes[selectionKey.value] = null; saved.value.newKeys[selectionKey.value] = crypto.randomUUID() }
+      if (isPage.value) { saved.value.selected[selectionKey.value] = null; saved.value.chatScopes[selectionKey.value] = null; delete saved.value.libraryScopes[selectionKey.value]; delete saved.value.sourceModes[selectionKey.value]; saved.value.newKeys[selectionKey.value] = crypto.randomUUID() }
     }
   } catch(e) { if (account === props.account && key === selectionKey.value) historyError.value = e.message }
   finally { if (account === props.account && key === selectionKey.value) historyBusy.value = false }
@@ -517,6 +554,10 @@ watch([() => props.account, selectionKey], ([account], [oldAccount]) => {
   if (isPage.value) mode.value = 'agent'
   connect(); void loadHistory(); void guardAction(loadSelection)
 })
+watch(() => props.libraryTarget, target => {
+  if (!isPage.value || !target || target.account !== props.account) return
+  startSource('library', target)
+}, { immediate: true, flush: 'post' })
 // 新一轮开始后保留上一轮过程，避免退回加载占位。
 watch(run, (next, previous) => {
   if (previous?.id && previous.id !== next?.id && previous.thread_id === thread.value?.id && (!previous.account || previous.account === props.account)) pastRuns.value[previous.id] = previous

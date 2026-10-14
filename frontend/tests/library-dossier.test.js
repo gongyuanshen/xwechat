@@ -1,4 +1,5 @@
 import { mount, flushPromises } from '@vue/test-utils';
+import { ref } from 'vue';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import LibraryDossier from '../components/library/LibraryDossier.vue';
 
@@ -12,8 +13,9 @@ const preview = () => ({ token: 'a'.repeat(64), folder_name: '论文投稿', pre
 let wrapper;
 beforeEach(() => {
   state.api = { getDossier: vi.fn(async () => preview()), saveVersion: vi.fn(), getVersion: vi.fn() };
+  vi.stubGlobal('useState', () => ({ value: null }));
 });
-afterEach(() => wrapper?.unmount());
+afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals(); });
 
 it('compares report bodies and saves explicit human change notes with the reviewed token', async () => {
   state.api.saveVersion.mockResolvedValue({ number: 2 });
@@ -85,6 +87,20 @@ it('historical snapshots display their own evidence, notes and masked content wi
   expect(wrapper.emitted('locate')[0][0]).toEqual({ username: 'friend', anchor: 'db:t:1' });
 });
 
+it('launches an account-scoped Agent question from the selected immutable version', async () => {
+  const target = { value: null }, navigate = vi.fn(async () => true)
+  vi.stubGlobal('useState', () => target); vi.stubGlobal('navigateTo', navigate)
+  state.api.getVersion.mockResolvedValue({ id: 'v1', number: 1, name: '初稿', folder_name: '论文投稿', created_at: 1, arrangements: '', conclusions: '', items: [evidence], changes: { added: [], removed: [], changed: [] } })
+  wrapper = mount(LibraryDossier, { props: { account: 'a', folderId: 'folder' } })
+  await flushPromises()
+  expect(wrapper.find('[aria-label="基于此版本提问"]').exists()).toBe(false)
+  await wrapper.find('[name="history-version"]').setValue('v1'); await flushPromises()
+  await wrapper.find('[aria-label="基于此版本提问"]').trigger('click'); await flushPromises()
+  expect(target.value).toMatchObject({ account: 'a', folder_id: 'folder', version_id: 'v1', folder_name: '论文投稿', version_name: '初稿', version_number: 1 })
+  expect(navigate).toHaveBeenCalledWith('/agent')
+  vi.unstubAllGlobals()
+})
+
 it('downloads from the selected history version and exposes missing-copy errors without a retry', async () => {
   state.api.getVersion.mockResolvedValue({ id: 'v1', number: 1, name: '初稿', folder_name: '论文投稿', created_at: 1,
     arrangements: '', conclusions: '', previous_id: null,
@@ -98,4 +114,15 @@ it('downloads from the selected history version and exposes missing-copy errors 
   await wrapper.findAll('button').find(button => button.text() === '下载附件副本').trigger('click'); await flushPromises();
   expect(state.api.downloadVersionAttachment).toHaveBeenCalledExactlyOnceWith('a', 'folder', 'v1', 'item');
   expect(wrapper.find('[role="alert"]').text()).toContain('历史附件副本缺失');
+});
+
+it('a failed Agent navigation clears its published version target and displays the real error', async () => {
+  const target = ref(null)
+  vi.stubGlobal('useState', () => target); vi.stubGlobal('navigateTo', vi.fn().mockRejectedValue(new Error('助手页面加载失败')))
+  state.api.getVersion.mockResolvedValue({ id: 'v1', number: 1, name: '初稿', folder_name: '论文投稿', created_at: 1, arrangements: '', conclusions: '', items: [evidence], changes: { added: [], removed: [], changed: [] } })
+  wrapper = mount(LibraryDossier, { props: { account: 'a', folderId: 'folder' } })
+  await flushPromises(); await wrapper.find('[name="history-version"]').setValue('v1'); await flushPromises()
+  await wrapper.find('[aria-label="基于此版本提问"]').trigger('click'); await flushPromises()
+  expect(target.value).toBeNull()
+  expect(wrapper.find('[role="alert"]').text()).toContain('助手页面加载失败')
 });

@@ -56,7 +56,6 @@ const noAccountGuideOpen = ref(false)
 
 const accountDataRoutePrefixes = [
   '/chat',
-  '/agent',
   '/time-machine',
   '/sns',
   '/favorites',

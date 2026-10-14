@@ -32,6 +32,17 @@ it('reports account refresh failures while preserving confirmed accounts and res
   expect(store.error).toBe('账号目录读取失败'); expect(store.accounts).toEqual(['restored']);
   expect(store.revisions.restored).toBe(1); expect($fetch).toHaveBeenCalledTimes(2);
 });
+it('keeps an explicit restored selection when initial chat hydration arrives late but follows later sidebar switches', async () => {
+  $fetch.mockResolvedValue({ accounts: ['restored', 'chat-a', 'chat-b'], chat_accounts: ['chat-a', 'chat-b'] });
+  const store = useApplicationAccountsStore(); await store.ensureLoaded();
+  store.setSelectedAccount('restored');
+  state.chat.loading = true; state.chat.loaded = false;
+  state.chat.selectedAccount = 'chat-a';
+  expect(store.selectedAccount).toBe('restored');
+  state.chat.loading = false; state.chat.loaded = true;
+  state.chat.selectedAccount = 'chat-b';
+  expect(store.selectedAccount).toBe('chat-b');
+});
 it('ignores an older list response after a forced refresh', async () => {
   let finish; $fetch.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   const store = useApplicationAccountsStore(); const first = store.ensureLoaded();

@@ -2,6 +2,26 @@
 
 Root-level `tests/` references and backend acceptance records in this document come from local private Python regression tests. That directory is not distributed with the public source and is not needed to build or run the application. `frontend/tests/` and `desktop/tests/` remain public; historical acceptance records below retain their original scope and dates.
 
+## Questions About a Saved Topic Version (2026-10-13)
+
+In the standalone Agent, select an application-data account, switch the source to **Topic Materials**, and select a folder and a saved version. The picker initially shows the most recent saved version and allows choosing an earlier one. A folder without saved versions must first be saved in Local Folders. You can also open a historical version in **Topic Archive** and click **Ask About This Version** to open Agent with that selection.
+
+Each conversation is bound to that version. Changing the source, topic, or version starts a new conversation; stop an active task first. History restores the recorded selection. A question captures the saved version in the existing Agent workspace; later edits to current materials or deletion of the original folder do not rewrite the conversation's captured text. Application-data accounts can use this mode without importing their original chat databases. Ordinary chat analysis still requires its chat account.
+
+Answers identify the topic and version and cite saved materials. Clicking a citation reads the preserved text in the answer's own task, including pagination for long materials, without querying the original chat. Original messages, manually written notes, saved or edited AI reports, original report answers, and saved citation evidence have distinct provenance. OCR and document extraction retain their saved extraction metadata; partial historical extraction remains explicitly partial. Saved reports retain the topic scope, coverage, and complete cited evidence.
+
+Coverage counts saved items touched and saved-text characters read across the conversation. Opening a directory or seeing a search excerpt is not full reading. Complete saved-text coverage does not prove completeness of the original chats or that conclusions are correct. Raw attachment copies supply metadata unless their extracted text was also saved in the selected version; this mode does not parse files, run OCR, or infer contents from filenames. Material gaps are explicitly paginated. Saved dates and conclusions do not establish the current state of WeChat or the real world.
+
+Implementation reuses the existing DeepAgents engine, model selection, checkpoints, streaming, account lifecycle, and evidence store. Thread creation accepts `library_scope: {folder_id, version_id}` only with `origin: "agent"`, mutually exclusive with `chat_scope`. The server records the exact version identity and name. Topic tools can list, search, and read only that captured version; internal file tools cannot bypass material pagination. Invalid or unread citations fail explicitly, without an automatic answer-repair call. Topic checking and automatic collection of new chat materials are not part of this feature.
+
+### Saved-Topic Verification
+
+On 2026-10-13, 399 related backend checks passed, including 32 topic integration cases and 29 saved-material tool cases. Controlled model responses drove the actual DeepAgents graph and local HTTP routes to verify saved-version isolation, citations, follow-up questions after folder deletion, report evidence retention, account separation, cancellation leases, and blocked chat/file-reading routes. Long text and 1,000 attachment gap records were verified with complete pagination. The run reported two existing warnings about the experimental LangChain v3 streaming protocol.
+
+The full frontend suite passed 85 Node and 1,268 Vitest tests across 102 Vitest files; final production static generation passed. Coverage includes topic selection, late account hydration, history/source changes, saved-material pagination and provenance, and direct entry from a saved version. Documentation language and local links passed validation. Private logs are in `.work/topic-agent-20261013/`.
+
+These checks used isolated synthetic materials and controlled model responses, not real model services, user chats, WeChat operations, or installers. Automatic approval review blocked the Chrome launch for visual screenshots, so browser visual acceptance was not completed. This historical record describes source acceptance on 2026-10-13; see the [v1.5.0 release validation record](release-1.5.0-validation.md) for subsequent package and frozen-backend checks.
+
 ## Retrieval Modes and Pagination (2026-10-09)
 
 `search_messages` and the planned-retrieval branch add `retrieval_mode: keyword | hybrid`; new queries default to `keyword`. Use keyword search for exact wording, identifiers, and amounts; hybrid retrieval for vague descriptions; and supplement with `read_context` when references, premises, or state changes matter. Tool records show requested and actual modes. Overview, complete analysis, and exact statistics retain their existing flows, with search hits treated only as `search_only` evidence.

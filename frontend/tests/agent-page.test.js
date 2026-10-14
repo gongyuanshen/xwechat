@@ -7,15 +7,17 @@ import AgentPage from '../pages/agent.vue'
 let account, accounts, api, navigation, navigate, wrapper
 vi.mock('pinia', () => ({ storeToRefs: store => store }))
 vi.mock('~/stores/chatAccounts', () => ({ useChatAccountsStore: () => accounts }))
+vi.mock('~/stores/applicationAccounts', () => ({ useApplicationAccountsStore: () => accounts }))
+vi.mock('~/stores/privacy', () => ({ usePrivacyStore: () => ({ privacyMode: ref(false) }) }))
 vi.mock('~/composables/useApi', () => ({ useApi: () => api }))
 vi.mock('~/components/chat/ChatAgentPanel.vue', () => ({ default: defineComponent({
-  name: 'ChatAgentPanel', props: ['account', 'presentation', 'prepareSource', 'locateSource'],
+  name: 'ChatAgentPanel', props: ['account', 'presentation', 'prepareSource', 'locateSource', 'canReadChats', 'libraryTarget'],
   setup: () => () => h('div', { class: 'agent-panel-fixture' }),
 }) }))
 
 beforeEach(() => {
   account = ref('account-a')
-  accounts = { selectedAccount: account, loading: false, error: '', ensureLoaded: vi.fn(async () => {}) }
+  accounts = { selectedAccount: account, accounts: ['account-a', 'account-b', 'restored-only'], chatAccounts: ['account-a', 'account-b'], loading: false, error: '', ensureLoaded: vi.fn(async () => true), setSelectedAccount: value => { account.value = value } }
   api = { getChatMessagesAround: vi.fn(async () => ({ messages: [{ id: 'anchor' }], anchorId: 'anchor', anchorIndex: 0 })) }
   navigation = ref(null)
   navigate = vi.fn(async () => {})
@@ -28,6 +30,24 @@ const open = async () => { wrapper = mount(AgentPage, { global: { stubs: { Error
 const source = { username: 'friend', anchor: 'anchor', source: 'source-1' }
 
 describe('独立 AI 助手页面接入', () => {
+  it('selects restored material accounts and rejects direct chat navigation for them', async () => {
+    const panel = await open()
+    await wrapper.find('[aria-label="应用资料账号"]').setValue('restored-only'); await flushPromises()
+    expect(panel.props('account')).toBe('restored-only')
+    expect(panel.props('canReadChats')).toBe(false)
+    await expect(panel.props('prepareSource')(source)).rejects.toThrow('导入对应账号')
+    await expect(panel.props('locateSource')(source)).rejects.toThrow('导入对应账号')
+    expect(api.getChatMessagesAround).not.toHaveBeenCalled(); expect(navigate).not.toHaveBeenCalled()
+  })
+  it('consumes an account-scoped saved-version direct-entry target without putting it in the URL', async () => {
+    const topicNavigation = ref({ account: 'restored-only', folder_id: 'folder', folder_name: '专题', version_id: 'v1', version_name: '初稿', version_number: 1 })
+    vi.stubGlobal('useState', key => key === 'agent-library-navigation-target' ? topicNavigation : navigation)
+    const panel = await open()
+    expect(topicNavigation.value).toBeNull()
+    expect(panel.props('account')).toBe('restored-only')
+    expect(panel.props('libraryTarget')).toMatchObject({ account: 'restored-only', folder_id: 'folder', version_id: 'v1' })
+    expect(navigate).not.toHaveBeenCalled()
+  })
   it('从共享账号 store 挂载页面形态，无需当前聊天联系人', async () => {
     const panel = await open()
     expect(accounts.ensureLoaded).toHaveBeenCalledOnce()

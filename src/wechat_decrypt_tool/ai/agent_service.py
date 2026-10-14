@@ -24,6 +24,7 @@ STREAM_PATCH_FIELDS = {
     'query_filters', 'time_range', 'intent', 'coverage_state', 'subtasks', 'choices',
     'answer_context', 'needs_continuation', 'can_resume', 'restart_required',
     'context_compaction', 'stage_notes',
+    'library_scope', 'topic_coverage',
 }
 
 from .deep_synchronization import serialized
@@ -176,7 +177,11 @@ class AgentService(DeepAgentRuntime, DeepProjection, AgentTimeline):
     def launch(self, id):
         if id not in self.workers or self.workers[id].done():
             run = self.run(id)
-            self.workers[id] = create_account_task(get_output_dir() / 'databases' / run['account'], self.execute, id)
+            if run.get('library_scope') is not None:
+                from ..application_accounts import create_application_account_task
+                self.workers[id] = create_application_account_task(run['account'], self.execute, id)
+            else:
+                self.workers[id] = create_account_task(get_output_dir() / 'databases' / run['account'], self.execute, id)
 
     @observed('agent.stop_run', id_field='run_id')
     async def stop_run(self, id, account):

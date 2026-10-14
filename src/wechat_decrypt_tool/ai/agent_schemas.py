@@ -8,15 +8,25 @@ class AgentControl(RuntimeError):
     pass
 
 
+class LibraryScope(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    folder_id: str = Field(pattern='^[0-9a-f]{32}$')
+    version_id: str = Field(pattern='^[0-9a-f]{32}$')
+
+
 class ThreadInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     account: str = Field(min_length=1)
     username: str = ''
     title: str = Field('新的对话', min_length=1, max_length=100)
     origin: Literal['chat', 'agent'] = 'chat'
     chat_scope: list[str] | None = Field(None, min_length=1, max_length=2000)
+    library_scope: LibraryScope | None = None
 
     @model_validator(mode='after')
     def standalone_scope(self):
+        if self.library_scope is not None and (self.origin != 'agent' or self.chat_scope is not None):
+            raise ValueError('专题版本仅用于独立 Agent 对话，不能同时选择聊天范围')
         if self.origin == 'agent' and self.username:
             raise ValueError('独立 Agent 对话不能绑定当前聊天')
         if self.origin == 'chat' and self.chat_scope is not None:
@@ -40,6 +50,7 @@ class RestartInput(BaseModel):
 
 
 class TurnInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     text: str = Field(min_length=1, max_length=1048576)
     request_id: str = Field(min_length=1, max_length=100)
     effort: Literal['moderate', 'deep'] = 'moderate'

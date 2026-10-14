@@ -59,10 +59,10 @@ describe('独立 AI 助手路由入口', () => {
     expect(entry.attributes('aria-current')).toBeUndefined()
     expect(entry.find('.sidebar-rail-plate-active').exists()).toBe(false)
   })
-  it('无账号进入 /agent 使用现有数据准备提示，选择账号后关闭提示', async () => {
+  it('专题问答页面无需先准备聊天账号', async () => {
     wrapper = mount(App, { global: { stubs: { SidebarRail: true, DesktopTitleBar: true, NuxtPage: true, SettingsDialog: true, GuideDialog: Guide } } })
     await flushPromises()
-    expect(wrapper.find('[role="dialog"]').text()).toBe('数据准备提示')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     accounts.selectedAccount.value = 'account-a'; await flushPromises()
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })

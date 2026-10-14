@@ -49,6 +49,10 @@ class ChatGateway:
     def __init__(self, service, run_id, version):
         self.service, self.id, self.version = service, run_id, version
         self.lock = asyncio.Lock()
+        self.topic = None
+        if service.run(run_id).get('library_scope') is not None:
+            from .topic_materials import TopicMaterials
+            self.topic = TopicMaterials(service, run_id, version)
 
     def guard(self):
         run = self.service.guard(self.id)
@@ -90,6 +94,8 @@ class ChatGateway:
 
     def progress_state(self):
         """给模型可直接执行的状态；统计覆盖不表示已分析。"""
+        if self.topic is not None:
+            return [self.topic.coverage()]
         states = self.scopes()
         states = [{**s, 'read_complete': self.scope_covered(s, states,
             analyzed=s['complete_required'] and s['mode'] != 'statistics', ignore_warnings=True)} for s in states]
@@ -619,6 +625,8 @@ class ChatGateway:
             'tracked': any(s['complete_required'] and s['mode'] != 'statistics' for s in states)})
 
     def validate_complete(self, *, ignore_warnings=False):
+        if self.topic is not None:
+            return not requires_complete_analysis(self.guard().get('input_digest', '')) or self.topic.coverage()['complete']
         states = self.scopes()
         run = self.guard()
         if run.get('subtask_plan_version') == REVISION and not run.get('parent_run_id') and not self.service.planned_work.ready(run):
@@ -735,6 +743,8 @@ class ChatGateway:
         return result
 
     def tools(self):
+        if self.topic is not None:
+            return self.topic.tools()
         @tool
         async def select_chat_scope(conversations: list[str] | None = None, all_chats: bool = False,
             time_phrase: str = '', start: ScopeTime = '', end: ScopeTime = '', sender: str | None = None, exclude: list[str] | None = None,

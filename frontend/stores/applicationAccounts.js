@@ -6,10 +6,13 @@ export const useApplicationAccountsStore = defineStore('applicationAccounts', ()
   const chat = useChatAccountsStore(), apiBase = useApiBase();
   const accounts = ref([]), chatAccounts = ref([]), selectedAccount = ref('');
   const error = ref(''), loading = ref(false), loaded = ref(false), revisions = ref({});
-  let requestId = 0, pending;
-  const setSelectedAccount = account => { selectedAccount.value = account; };
+  let requestId = 0, pending, explicitlySelected = false;
+  const setSelectedAccount = account => { selectedAccount.value = account; explicitlySelected = true; };
   const notifyRestored = account => { revisions.value = { ...revisions.value, [account]: (revisions.value[account] || 0) + 1 }; };
   watch(() => chat.selectedAccount, account => {
+    // Initial chat hydration may finish after an explicit restored-account choice.
+    // Later sidebar selections still follow the existing shared-account behavior.
+    if (explicitlySelected && chat.loading && !chat.loaded) return;
     if (chatAccounts.value.includes(account)) selectedAccount.value = account;
   }, { flush: 'sync' });
   const ensureLoaded = ({ force = false } = {}) => {

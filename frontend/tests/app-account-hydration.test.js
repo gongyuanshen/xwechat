@@ -49,7 +49,7 @@ afterEach(() => {
 const hydrate = async () => {
   const html = await renderToString(createApp())
   expect(fetchAccounts).not.toHaveBeenCalled()
-  expect(html).toContain('请先选择已解密或已导入的微信账号。')
+  expect(html).toContain('请导入微信账号，或在设置的“资料备份”中恢复应用资料。')
   container = document.createElement('div')
   container.innerHTML = html
   document.body.append(container)
@@ -60,26 +60,26 @@ const hydrate = async () => {
   app.mount(container)
   await flushPromises()
   expect([...warnings.mock.calls, ...errors.mock.calls].flat().filter(value => String(value).toLowerCase().includes('hydration'))).toEqual([])
-  expect(fetchAccounts).toHaveBeenCalledOnce()
+  expect(fetchAccounts.mock.calls.map(([path]) => path).sort()).toEqual(['/api/library/accounts', '/chat/accounts'])
 }
 
 describe('初次进入助手页的账号初始化', () => {
-  it('完成 hydration 后才显示加载状态，空账号请求结束后仍显示数据准备提示', async () => {
+  it('完成 hydration 后才显示加载状态，空资料账号展示恢复入口说明', async () => {
     await hydrate()
     expect(container.textContent).toContain('正在加载账号…')
-    resolveAccounts({ accounts: [] })
+    resolveAccounts({ accounts: [], chat_accounts: [] })
     await flushPromises()
-    expect(container.textContent).toContain('请先选择已解密或已导入的微信账号。')
-    expect(container.querySelector('[role="dialog"]')?.textContent).toBe('数据准备提示')
+    expect(container.textContent).toContain('请导入微信账号，或在设置的“资料备份”中恢复应用资料。')
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
     route.path = '/'
     await flushPromises()
     expect(container.querySelector('[role="dialog"]')).toBeNull()
   })
 
-  it('本地保存的账号不会提前改变预渲染内容，加载后仍选中并显示助手', async () => {
+  it('资料账号不会提前改变预渲染内容，加载后选中并显示助手', async () => {
     localStorage.setItem('ui.selected_account', 'account-a')
     await hydrate()
-    resolveAccounts({ accounts: ['account-a'] })
+    resolveAccounts({ accounts: ['account-a'], chat_accounts: ['account-a'] })
     await flushPromises()
     expect(container.querySelector('[data-account="account-a"]')?.textContent).toBe('助手已就绪')
     expect(container.querySelector('[role="dialog"]')).toBeNull()

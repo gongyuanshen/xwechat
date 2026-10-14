@@ -26,6 +26,7 @@
             <dt>待修正结论（人工记录）</dt><dd :class="{ 'privacy-blur': privacyMode }">{{ history.conclusions || '本版未填写' }}</dd>
           </dl>
           <div class="dossier-toolbar">
+            <button type="button" aria-label="基于此版本提问" :disabled="asking" @click="askVersion">{{ asking ? '正在打开 AI 助手…' : '基于此版本提问' }}</button>
             <button type="button" :aria-pressed="historyView === 'changes'" @click="historyView = 'changes'">与前一版本对照</button>
             <button type="button" :aria-pressed="historyView === 'materials'" @click="historyView = 'materials'">此版本全部资料</button>
           </div>
@@ -70,6 +71,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { isNavigationFailure } from 'vue-router';
 import { useLibraryApi } from '~/composables/useLibraryApi';
 import { saveAttachmentDownload } from '~/utils/attachmentDownload';
 import LibraryDossierEvidence from './LibraryDossierEvidence.vue';
@@ -80,6 +82,8 @@ const api = useLibraryApi();
 const preview = ref(null), history = ref(null), historyId = ref(''), historyView = ref('changes');
 const loading = ref(false), saving = ref(false), downloading = ref(false), historyLoading = ref(false);
 const error = ref(''), notice = ref(''), draft = ref({ name: '', arrangements: '', conclusions: '' });
+const asking = ref(false);
+const agentNavigation = useState('agent-library-navigation-target', () => null);
 let generation = 0, previewRequest = 0, versionRequest = 0;
 const message = e => typeof e.data?.detail === 'string' ? e.data.detail : e.data?.detail?.message || e.message;
 const formatDate = seconds => new Date(seconds * 1000).toLocaleString();
@@ -97,6 +101,20 @@ watch(() => [props.account, props.folderId], () => {
 }, { immediate: true });
 watch(() => props.revision, () => load());
 onBeforeUnmount(() => { generation++; });
+async function askVersion() {
+  const version = history.value, token = generation;
+  agentNavigation.value = { account: props.account, folder_id: props.folderId, folder_name: version.folder_name,
+    version_id: version.id, version_name: version.name, version_number: version.number, saved_at: version.created_at, item_count: version.items.length };
+  const target = agentNavigation.value;
+  asking.value = true; error.value = '';
+  try {
+    const result = await navigateTo('/agent');
+    if (result === false || isNavigationFailure(result)) throw new Error('未能打开 AI 助手，请重试。');
+  } catch (cause) {
+    if (agentNavigation.value === target) agentNavigation.value = null;
+    if (token === generation) error.value = message(cause);
+  } finally { if (token === generation) asking.value = false; }
+}
 async function load() {
   const token = generation, request = ++previewRequest;
   loading.value = true; error.value = ''; preview.value = null;
