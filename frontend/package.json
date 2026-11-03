@@ -18,19 +18,19 @@
     "@vueuse/core": "14.4.0",
     "ai": "6.0.280",
     "clsx": "2.1.1",
-    "markdown-it": "^15.0.1",
-    "nuxt": "^4.0.1",
+    "markdown-it": "^15.0.3",
+    "nuxt": "^4.6.4",
     "tailwind-merge": "3.6.0",
     "tailwindcss": "4.3.3",
     "three": "^0.185.1",
-    "vue": "^3.5.17",
-    "vue-router": "^4.5.1",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0",
     "vue-stick-to-bottom": "1.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.4",
     "@vue/test-utils": "^2.4.11",
-    "happy-dom": "^18.0.1",
-    "vitest": "^3.2.7"
+    "happy-dom": "^21.0.4",
+    "vitest": "^4.1.12"
   }
 }

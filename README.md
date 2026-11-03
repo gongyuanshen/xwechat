@@ -71,7 +71,7 @@ The table below describes features in the current source code. Previously downlo
 
 Check [GitHub Releases](https://github.com/gongyuanshen/xwechat/releases) for published versions and their notes. Windows x64 packages are available in the following forms:
 
-The current project version is `1.5.0`. Version numbering for this independent project starts at `1.0.0`. Refer to the Releases page for the packages actually published and their versions.
+The current project version is `1.5.1`. Version numbering for this independent project starts at `1.0.0`. Refer to the Releases page for the packages actually published and their versions.
 
 - **Installer**: Run `xwechat-<version>-Setup.exe` and select a directory in the installation wizard.
 - **Portable package**: Fully extract `xwechat-<version>-Setup.zip` and run `xwechat.exe` from the extracted directory. Keep all resources in that directory.
