@@ -64,10 +64,16 @@ async function choosePort({ label, envName, preferredPort, host, searchLimit = 2
 }
 
 function httpReady(url) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const req = http.get(url, (res) => {
+      res.on("error", reject);
+      // Nuxt binds the port before compilation finishes and serves HTTP 503.
+      res.on("end", () => {
+        if (res.statusCode === 503) resolve(false);
+        else if (res.statusCode === 200) resolve(true);
+        else reject(new Error(`前端返回 HTTP ${res.statusCode}：${url}`));
+      });
       res.resume();
-      resolve(true);
     });
     req.on("error", () => resolve(false));
     req.setTimeout(1000, () => {
@@ -165,7 +171,12 @@ async function main() {
     shutdown(code == null ? 1 : code);
   });
 
-  await waitForUrl(startUrl, frontend, 60_000);
+  try {
+    await waitForUrl(startUrl, frontend, 60_000);
+  } catch (error) {
+    shutdown(1);
+    throw error;
+  }
   log("frontend is ready, starting Electron");
 
   const electronArgs = [

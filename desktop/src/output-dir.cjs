@@ -179,7 +179,59 @@ function hashFileSha256(filePath) {
   });
 }
 
-async function verifyCopiedOutputTree(sourceDir, copiedDir, sourceManifest = null) {
+function rebaseVerifiedSnapshotManifest(text, { previousDir, nextDir, generationName }) {
+  // Python fingerprints contain 64-bit inode/mtime values; retain numeric tokens without rounding.
+  const result = JSON.parse(text, (_key, value, context) =>
+    typeof value === "number" ? JSON.rawJSON(context.source) : value);
+  const generation = path.join(previousDir, "verified_snapshots", generationName);
+  const account = result?.account;
+  if (!/^generation-[0-9a-f]{32}$/.test(generationName) || !result || typeof result !== "object"
+      || result.status !== "success" || typeof account !== "string" || !account
+      || account === "." || account === ".." || /[\\/]/.test(account)
+      || result.generation_path !== generation
+      || result.account_path !== path.join(generation, "databases", account)
+      || !result.db_diagnostics || typeof result.db_diagnostics !== "object"
+      || Array.isArray(result.db_diagnostics) || Object.keys(result.db_diagnostics).length === 0) {
+    throw new Error(`Snapshot migration metadata does not describe its source generation: ${generation}`);
+  }
+  const relocated = path.join(nextDir, "verified_snapshots", generationName);
+  for (const [name, diagnostic] of Object.entries(result.db_diagnostics)) {
+    const previousPath = path.join(result.account_path, name);
+    if (!/^[^\\/]+\.db$/i.test(name) || !diagnostic || typeof diagnostic !== "object"
+        || diagnostic.output_path !== previousPath || diagnostic.diagnostics?.path !== previousPath
+        || diagnostic.output_header_debug?.path !== previousPath) {
+      throw new Error(`Snapshot migration database path does not match its source generation: ${generation} / ${name}`);
+    }
+    const nextPath = path.join(relocated, "databases", account, name);
+    diagnostic.output_path = nextPath;
+    diagnostic.diagnostics.path = nextPath;
+    diagnostic.output_header_debug.path = nextPath;
+  }
+  // Captured-source paths, fingerprints and verification evidence remain provenance, not relocated output.
+  result.generation_path = relocated;
+  result.account_path = path.join(relocated, "databases", account);
+  return JSON.stringify(result, null, 2);
+}
+
+function collectSnapshotManifestUpdates(sourceDir, previousDir, nextDir, manifest) {
+  const updates = new Map();
+  for (const entry of manifest.files) {
+    const match = /^verified_snapshots[\\/](generation-[0-9a-f]{32})[\\/]manifest\.json$/.exec(entry.relativePath);
+    if (!match) continue;
+    const sourcePath = path.join(sourceDir, entry.relativePath);
+    try {
+      const relocated = rebaseVerifiedSnapshotManifest(fs.readFileSync(sourcePath, "utf8"),
+        { previousDir, nextDir, generationName: match[1] });
+      updates.set(entry.relativePath, Buffer.from(relocated));
+    } catch (error) {
+      throw new Error(`Cannot relocate snapshot migration metadata ${sourcePath}: ${error.message}`, { cause: error });
+    }
+  }
+  return updates;
+}
+
+async function verifyCopiedOutputTree(sourceDir, copiedDir, sourceManifest = null,
+  { previousDir = sourceDir, nextDir = copiedDir } = {}) {
   const sentinels = collectSentinels(sourceDir);
   for (const item of sentinels) {
     const copiedPath = path.join(copiedDir, item.name);
@@ -201,10 +253,13 @@ async function verifyCopiedOutputTree(sourceDir, copiedDir, sourceManifest = nul
   const expected = sourceManifest || collectCopyManifest(sourceDir);
   const currentSource = collectCopyManifest(sourceDir);
   const actual = collectCopyManifest(copiedDir);
+  const snapshotUpdates = collectSnapshotManifestUpdates(sourceDir, previousDir, nextDir, currentSource);
+  const relocatedFiles = currentSource.files.map(entry => snapshotUpdates.has(entry.relativePath)
+    ? { ...entry, size: snapshotUpdates.get(entry.relativePath).length } : entry);
   compareManifestPaths(expected.directories, currentSource.directories, "源目录");
   compareManifestPaths(expected.files, currentSource.files, "源文件");
   compareManifestPaths(currentSource.directories, actual.directories, "目录");
-  compareManifestPaths(currentSource.files, actual.files, "文件");
+  compareManifestPaths(relocatedFiles, actual.files, "文件");
 
   for (const fileEntry of currentSource.files) {
     const sourcePath = path.join(sourceDir, fileEntry.relativePath);
@@ -212,7 +267,9 @@ async function verifyCopiedOutputTree(sourceDir, copiedDir, sourceManifest = nul
     // Hash the source again after copying. The backend is normally stopped, but
     // another process may still update a log/database between scan and verify.
     // Reusing the copy-time hash would certify the stale copy instead.
-    const sourceHash = await hashFileSha256(sourcePath);
+    const relocated = snapshotUpdates.get(fileEntry.relativePath);
+    const sourceHash = relocated ? crypto.createHash("sha256").update(relocated).digest("hex")
+      : await hashFileSha256(sourcePath);
     const copiedHash = await hashFileSha256(copiedPath);
     if (sourceHash !== copiedHash) {
       throw new Error(`迁移校验失败：${fileEntry.relativePath} 内容不一致`);
@@ -343,7 +400,7 @@ async function restoreInterruptedSourceDirectory(currentPath, targetPath) {
       backupToRestore = "";
       for (const candidate of usableBackups) {
         try {
-          await verifyCopiedOutputTree(candidate, targetPath);
+          await verifyCopiedOutputTree(candidate, targetPath, null, { previousDir: currentPath, nextDir: targetPath });
           backupToRestore = candidate;
           matchedPromotedTarget = true;
           break;
@@ -541,7 +598,7 @@ async function copyFileWithProgress({ sourcePath, targetPath, mode, onChunk }) {
   await pipeline(readStream, writeStream);
 }
 
-async function copyOutputTree({ sourceDir, targetDir, manifest, onProgress }) {
+async function copyOutputTree({ sourceDir, targetDir, manifest, snapshotUpdates, onProgress }) {
   fs.mkdirSync(targetDir, { recursive: true });
 
   let bytesTransferred = 0;
@@ -573,22 +630,30 @@ async function copyOutputTree({ sourceDir, targetDir, manifest, onProgress }) {
     const sourcePath = path.join(sourceDir, fileEntry.relativePath);
     const targetPath = path.join(targetDir, fileEntry.relativePath);
 
-    await copyFileWithProgress({
-      sourcePath,
-      targetPath,
-      mode: fileEntry.mode,
-      onChunk: (delta) => {
-        bytesTransferred += clampNonNegativeNumber(delta);
-        emitProgress(onProgress, {
-          stage: "copying",
-          bytesTransferred,
-          bytesTotal: manifest.totalBytes,
-          itemsTransferred,
-          itemsTotal: manifest.totalItems,
-          currentFile: fileEntry.relativePath,
-        });
-      },
-    });
+    const relocated = snapshotUpdates.get(fileEntry.relativePath);
+    if (relocated) {
+      const temporary = `${targetPath}.migrating-${crypto.randomUUID()}`;
+      fs.writeFileSync(temporary, relocated, { flag: "wx", mode: fileEntry.mode });
+      fs.renameSync(temporary, targetPath);
+      bytesTransferred += fileEntry.size;
+    } else {
+      await copyFileWithProgress({
+        sourcePath,
+        targetPath,
+        mode: fileEntry.mode,
+        onChunk: (delta) => {
+          bytesTransferred += clampNonNegativeNumber(delta);
+          emitProgress(onProgress, {
+            stage: "copying",
+            bytesTransferred,
+            bytesTotal: manifest.totalBytes,
+            itemsTransferred,
+            itemsTotal: manifest.totalItems,
+            currentFile: fileEntry.relativePath,
+          });
+        },
+      });
+    }
 
     applyStatMetadata(targetPath, fileEntry);
     itemsTransferred += 1;
@@ -653,6 +718,7 @@ async function migrateOutputDirectory({ currentDir, nextDir, now = new Date(), o
   }
 
   const manifest = collectCopyManifest(currentPath);
+  const snapshotUpdates = collectSnapshotManifestUpdates(currentPath, currentPath, targetPath, manifest);
   const staleTargets = listSiblingTransactionPaths(targetPath, "migrating");
   let tempTarget = "";
   let targetAlreadyPromoted = false;
@@ -675,7 +741,7 @@ async function migrateOutputDirectory({ currentDir, nextDir, now = new Date(), o
     for (const candidate of staleTargets) {
       try {
         if (!isDirectory(candidate)) continue;
-        await verifyCopiedOutputTree(currentPath, candidate, manifest);
+        await verifyCopiedOutputTree(currentPath, candidate, manifest, { nextDir: targetPath });
         tempTarget = candidate;
         break;
       } catch {}
@@ -697,6 +763,7 @@ async function migrateOutputDirectory({ currentDir, nextDir, now = new Date(), o
         sourceDir: currentPath,
         targetDir: tempTarget,
         manifest,
+        snapshotUpdates,
         onProgress,
       });
     }
@@ -709,7 +776,7 @@ async function migrateOutputDirectory({ currentDir, nextDir, now = new Date(), o
       itemsTotal: manifest.totalItems,
     });
     if (!targetAlreadyPromoted) {
-      await verifyCopiedOutputTree(currentPath, tempTarget, manifest);
+      await verifyCopiedOutputTree(currentPath, tempTarget, manifest, { nextDir: targetPath });
     }
 
     emitProgress(onProgress, {
@@ -790,7 +857,7 @@ async function rollbackOutputDirectoryChange({ previousDir, currentDir, backupDi
       throw new Error(`新 output 路径不是目录，已保留新路径和备份：${currentPath}`);
     }
     try {
-      await verifyCopiedOutputTree(backupPath, currentPath);
+      await verifyCopiedOutputTree(backupPath, currentPath, null, { previousDir: previousPath, nextDir: currentPath });
     } catch (err) {
       throw new Error(
         `旧 output 备份校验失败，已保留新目录和备份：${err?.message || err}`
@@ -860,5 +927,6 @@ module.exports = {
   normalizeDirectoryPath,
   isPathLexicallyInsideOrEqual,
   pathsReferToSameLocation,
+  rebaseVerifiedSnapshotManifest,
   rollbackOutputDirectoryChange,
 };
