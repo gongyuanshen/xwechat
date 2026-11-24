@@ -189,7 +189,7 @@ async def iter_labels(models, profile, prompt, expected_sources, *, allowed_sour
 
     mode = delivery_mode(profile)
     parser = _Labels(expected_sources, allowed_sources)
-    with model_policy(strict_output=True, split_on_failure=False):
+    with model_policy(strict_output=True):
         policy = call_policy.get()
         if policy.constrain_thinking:
             from .model_reasoning import constrain_reasoning_profile

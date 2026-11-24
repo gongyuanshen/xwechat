@@ -733,7 +733,7 @@ class AutoReplyService:
             token = audit_task_id.set(id)
             try:
                 # Replies keep the model's thinking; thinking shares the output cap, so use the full output limit.
-                with model_policy(strict_output=True, split_on_failure=False, output_tokens=output_limit(profile)):
+                with model_policy(strict_output=True, output_tokens=output_limit(profile)):
                     reserved_output = output_limit(profile)
                     # Both protocols send the schema with the request when the model declares structured output.
                     native_schema = AutoReplyBody.model_json_schema() if (

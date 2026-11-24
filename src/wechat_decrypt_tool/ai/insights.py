@@ -427,7 +427,7 @@ class InsightService:
         prompt = self._prompt(instruction, data)
         self._check_prompt(profile, instruction, data, schema)
         # Portraits keep thinking; the thinking shares this cap, so use the model's full output limit.
-        with model_policy(strict_output=True, split_on_failure=False, output_tokens=output_limit(profile)):
+        with model_policy(strict_output=True, output_tokens=output_limit(profile)):
             result = await self.models.invoke(profile, prompt, schema, account=task['account'])
         self._check(task['id'])
         try:
@@ -581,7 +581,7 @@ class InsightService:
                 self._check(id)
                 if by_source:
                     self._check_prompt(profile, LABEL_INSTRUCTION, data, LabelsOutput)
-                    with model_policy(strict_output=True, split_on_failure=False, output_tokens=min(4096, output_limit(profile)),
+                    with model_policy(strict_output=True, output_tokens=min(4096, output_limit(profile)),
                                       constrain_thinking=not explicit_reasoning(profile)):
                         async with aclosing(iter_labels(self.models, profile, self._prompt(LABEL_INSTRUCTION, data),
                             set(by_source), allowed_sources={m['source'] for m in context + batch},

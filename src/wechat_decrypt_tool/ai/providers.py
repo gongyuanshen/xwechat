@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, ValidationError
 from .model_catalog import ModelCatalog
-from .model_execution import call_policy, ResegmentModelError
+from .model_execution import call_policy
 from .model_scheduler import ModelSlots, scheduler, subtask_id
 
 audit_task_id = ContextVar("ai_audit_task_id", default="")
@@ -467,9 +467,8 @@ class ModelService:
                              or 'connection' in type(exc).__name__.lower()
                              or 'timeout' in type(exc).__name__.lower()
                              or status in {408, 409, 429} or bool(status and status >= 500))
-                if transient and policy.split_on_failure and requested is not None:
-                    audit['error_category'] = 'timeout' if isinstance(exc, TimeoutError) else 'service'
-                    raise ResegmentModelError('模型整理未完成，正在缩小批次；已保存原文和笔记保留。') from None
+                if transient:
+                    audit['error_category'] = 'timeout' if isinstance(exc, TimeoutError) or 'timeout' in type(exc).__name__.lower() else 'service'
                 # 超时回调可能早于粗粒度时钟的下一跳，已触发的截止不能继续重试。
                 if call_timeout.expired() or time.monotonic() >= deadline:
                     audit['error_category'] = 'timeout'
@@ -483,6 +482,9 @@ class ModelService:
                     native_output = False
                     diagnostic_event('model.call.compatibility', level=logging.WARNING, call_id=audit['id'], reason_code='native_schema_unsupported')
                     continue
+                if attempt == 2 and transient:
+                    cause = f'HTTP {status}' if status else ('超时' if audit['error_category'] == 'timeout' else '连接中断')
+                    raise ProviderFailure(f'模型服务暂时不可用（{cause}），已尝试 3 次仍失败，请稍后重试。') from None
                 if attempt == 2 or (status and status not in {408, 409, 429} and status < 500):
                     raise ProviderFailure("模型调用或结果校验失败，请检查模型能力、服务地址和连接状态") from None
                 diagnostic_event('model.call.retry', level=logging.WARNING, call_id=audit['id'], attempt=attempt+2, wait_seconds=2**attempt)

@@ -335,7 +335,7 @@ class InsightLiveService:
                     by_source = {item['source']: item for item in items}
                     stream = iter_labels(self.parent.models, profile, self.parent._prompt(LABEL_INSTRUCTION, data),
                         set(by_source), allowed_sources=allowed, account=batch['account'])
-                    with model_policy(strict_output=True, split_on_failure=False, output_tokens=min(4096, output_limit(profile)),
+                    with model_policy(strict_output=True, output_tokens=min(4096, output_limit(profile)),
                                       constrain_thinking=not explicit_reasoning(profile)):
                         async with aclosing(stream):
                             async for label in stream:
