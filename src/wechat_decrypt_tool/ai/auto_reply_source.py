@@ -22,6 +22,9 @@ from ..snapshot_registry import (
 from ..wechat_ui_bridge import WeChatBridgeError
 from .messages import advance_cursor, iter_message_pages
 
+# Recent plain-text messages sent to the model as background for each reply.
+CONTEXT_MESSAGES = 30
+
 
 class AutoReplySourceError(WeChatBridgeError):
     def __init__(self, stage: str, message: str, status_code: int = 409):
@@ -195,10 +198,10 @@ class AutoReplySource:
                 timestamp = db.execute(f"SELECT MAX(create_time) FROM {quoted}").fetchone()[0]
                 if timestamp is not None:
                     newest = int(timestamp) if newest is None else max(newest, int(timestamp))
-                # Locate at most ten ordinary-text timestamps per shard first.
+                # Locate at most CONTEXT_MESSAGES ordinary-text timestamps per shard first.
                 # The following descending parser never starts at history's beginning.
                 context_times.extend(int(row[0]) for row in db.execute(
-                    f"SELECT create_time FROM {quoted} WHERE local_type=1 ORDER BY create_time DESC LIMIT 10"))
+                    f"SELECT create_time FROM {quoted} WHERE local_type=1 ORDER BY create_time DESC LIMIT {CONTEXT_MESSAGES}"))
         if self_id is None:
             raise AutoReplySourceError("conversation", "已验证快照中没有目标会话的准确消息表")
         return self_id, newest, min(context_times) if context_times else None
@@ -219,12 +222,12 @@ class AutoReplySource:
             context = []
             if context_start is not None:
                 with closing(iter_message_pages(account, session_id, context_start, None,
-                        descending=True, message_kind="text", page_size=10, checkpoint=checkpoint)) as pages:
+                        descending=True, message_kind="text", page_size=CONTEXT_MESSAGES, checkpoint=checkpoint)) as pages:
                     for page in pages:
                         context.extend(m for m in page["messages"] if m["media"]["type"] == 1)
-                        if len(context) >= 10:
+                        if len(context) >= CONTEXT_MESSAGES:
                             break
-                context = list(reversed(context[:10]))
+                context = list(reversed(context[:CONTEXT_MESSAGES]))
             messages, consumed = [], {"time": 0, "ids": []} if cursor is None else cursor
             if baseline:
                 consumed = latest

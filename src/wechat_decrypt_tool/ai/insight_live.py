@@ -17,6 +17,7 @@ from .diagnostics import event
 from .insight_schemas import LiveBatchInput, LiveScope, LiveSettingsInput, LiveStateInput, LabelsOutput, MessageLabel
 from .agent_budget import output_limit
 from .model_execution import model_policy
+from .model_reasoning import explicit_reasoning
 from .model_selection import SelectedModel, selected_model
 from .providers import ProviderFailure, audit_task_id, public_profile
 from ..app_paths import get_output_dir
@@ -334,7 +335,8 @@ class InsightLiveService:
                     by_source = {item['source']: item for item in items}
                     stream = iter_labels(self.parent.models, profile, self.parent._prompt(LABEL_INSTRUCTION, data),
                         set(by_source), allowed_sources=allowed, account=batch['account'])
-                    with model_policy(strict_output=True, split_on_failure=False, output_tokens=min(4096, output_limit(profile))):
+                    with model_policy(strict_output=True, split_on_failure=False, output_tokens=min(4096, output_limit(profile)),
+                                      constrain_thinking=not explicit_reasoning(profile)):
                         async with aclosing(stream):
                             async for label in stream:
                                 self._save(batch, by_source[label['source']], label, allowed)

@@ -18,6 +18,7 @@ from .insight_schemas import InsightTaskInput, LabelsOutput, Portrait
 from .insight_label_stream import iter_labels
 from .messages import iter_message_pages
 from .model_execution import model_policy
+from .model_reasoning import explicit_reasoning
 from .model_selection import SelectedModel, selected_model
 from .providers import ProviderFailure, analysis_messages, audit_task_id, public_profile
 from .service import get_ai_service
@@ -425,7 +426,8 @@ class InsightService:
         self._check(task['id'])
         prompt = self._prompt(instruction, data)
         self._check_prompt(profile, instruction, data, schema)
-        with model_policy(strict_output=True, split_on_failure=False, output_tokens=min(4096, output_limit(profile))):
+        # Portraits keep thinking; the thinking shares this cap, so use the model's full output limit.
+        with model_policy(strict_output=True, split_on_failure=False, output_tokens=output_limit(profile)):
             result = await self.models.invoke(profile, prompt, schema, account=task['account'])
         self._check(task['id'])
         try:
@@ -579,7 +581,8 @@ class InsightService:
                 self._check(id)
                 if by_source:
                     self._check_prompt(profile, LABEL_INSTRUCTION, data, LabelsOutput)
-                    with model_policy(strict_output=True, split_on_failure=False, output_tokens=min(4096, output_limit(profile))):
+                    with model_policy(strict_output=True, split_on_failure=False, output_tokens=min(4096, output_limit(profile)),
+                                      constrain_thinking=not explicit_reasoning(profile)):
                         async with aclosing(iter_labels(self.models, profile, self._prompt(LABEL_INSTRUCTION, data),
                             set(by_source), allowed_sources={m['source'] for m in context + batch},
                             account=task['account'])) as stream:

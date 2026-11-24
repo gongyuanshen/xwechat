@@ -78,6 +78,11 @@ def validate(profile, effort=None, mode=None, budget=None):
     return {**profile, 'reasoning_effort': effort, 'thinking_mode': mode, 'thinking_budget': budget}
 
 
+def explicit_reasoning(profile):
+    """The user picked a thinking mode, effort or budget; automatic thinking limits must not override it."""
+    return any(profile.get(key) is not None for key in ('reasoning_effort', 'thinking_mode', 'thinking_budget'))
+
+
 def constrain_reasoning_profile(profile, metadata=None):
     """在事实提取阶段收敛思考深度：
     - 若模型方言支持显式关闭思考，直接关闭思考；

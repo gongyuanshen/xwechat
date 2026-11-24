@@ -313,13 +313,15 @@ class ModelService:
                              and (output_support is True or (not policy.strict_output and output_support is not False)))
         json_output = bool(schema and profile.get('protocol') == 'openai'
                             and output_support is True)
+        # json_object only guarantees JSON syntax; strict callers send their schema so arrays or bare values are not generated.
+        schema_output = json_output and policy.strict_output
         if policy.constrain_thinking:
             from .model_reasoning import constrain_reasoning_profile
             profile = constrain_reasoning_profile(profile)
         deadline = time.monotonic() + policy.seconds
         attempts = 1 if policy.strict_output else 3
         for attempt in range(attempts):
-            if active_budget.get():check_request(profile,messages,schema.model_json_schema() if native_output else None)
+            if active_budget.get():check_request(profile,messages,schema.model_json_schema() if native_output or schema_output else None)
             hook = model_attempt_hook.get()
             if hook:
                 hook()
@@ -330,7 +332,7 @@ class ModelService:
                      "task_id": audit_task_id.get(), "subtask_id": subtask_id.get(), "attempt": attempt + 1, "started_at": started,
                      "image_count": len(images or []), "status": "running", "usage": {},
                      "usage_known": False, "id": uuid.uuid4().hex,
-                     "output_format": 'json_schema' if native_output else 'json_object' if json_output else 'text'}
+                     "output_format": 'json_schema' if native_output or schema_output else 'json_object' if json_output else 'text'}
             audit.update({k:v for k,v in diagnostic_context.get().items() if k in {'trace_id','operation_id','execution_id','run_id','thread_id'}})
             self.store.put("usage", audit, account=account)
             queued = time.monotonic()
@@ -352,7 +354,10 @@ class ModelService:
                         if policy.output_tokens is not None:
                             # 显式思考预算不能超过辅助调用的输出上限；扩展输出预留以保留用户选择。
                             kwargs['max_tokens'] = min(output_limit(profile), max(policy.output_tokens, (profile.get('thinking_budget') or 0) + 1))
-                        if json_output:
+                        if schema_output:
+                            kwargs['response_format'] = {'type': 'json_schema', 'json_schema': {
+                                'name': schema.__name__, 'strict': True, 'schema': schema.model_json_schema()}}
+                        elif json_output:
                             kwargs['response_format'] = {'type': 'json_object'}
                         if native_output:
                             # A dict schema leaves SDK output uncoerced for our strict validation.

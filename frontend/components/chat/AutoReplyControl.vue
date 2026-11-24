@@ -33,7 +33,11 @@ const visibleError = computed(() => {
   if (error.value) return error.value
   if (loadError.value) return loadError.value
   const failure = sessionStatus.value?.error || status.value?.error
-  return failure ? `${failure.code}：${failure.detail}` : ''
+  if (failure) return `${failure.code}：${failure.detail}`
+  const last = enabled.value && sessionStatus.value?.last_failure
+  if (!last) return ''
+  const at = last.finished_at ? new Date(last.finished_at * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''
+  return `上次回复未发送${at ? `（${at}）` : ''}：${last.code}：${last.detail}`
 })
 
 function checkResponse(value, account, kind) {

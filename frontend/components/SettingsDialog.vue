@@ -25,7 +25,7 @@
             type="button"
             class="group flex w-full flex-col items-start rounded-[6px] px-3 py-1.5 text-left transition select-none"
             :class="activeSection === item.key ? 'bg-[var(--app-accent)]' : 'hover:bg-[#f0f0f0]/60'"
-            @click="scrollToSection(item.key)"
+            @click="selectSection(item.key)"
           >
             <div class="text-[12px] font-medium" :class="activeSection === item.key ? 'text-white' : 'text-[#777] group-hover:text-[#333]'">
               {{ item.label }}
@@ -1028,7 +1028,7 @@ const sectionElements = computed(() => [
   { key: 'sns', el: snsSectionRef.value },
 ])
 
-const scrollToSection = (key) => {
+const scrollToSection = (key, { smooth = true } = {}) => {
   const scrollHost = contentScrollRef.value
   const target = sectionElements.value.find((item) => item.key === key)?.el
   activeSection.value = key
@@ -1037,35 +1037,59 @@ const scrollToSection = (key) => {
   const targetTop = scrollHost.scrollTop + target.getBoundingClientRect().top - scrollHost.getBoundingClientRect().top
   scrollHost.scrollTo({
     top: Math.max(0, targetTop - 10),
-    behavior: 'smooth',
+    behavior: smooth ? 'smooth' : 'auto',
   })
+}
+
+// 打开时上方栏目仍在异步加载、高度会变；瞬时定位后跟随栏目尺寸变化重新对齐，用户一滚动或点击就停止。
+let stopSectionFollow = null
+const focusSection = (key) => {
+  stopSectionFollow?.()
+  scrollToSection(key, { smooth: false })
+  const scrollHost = contentScrollRef.value
+  if (!scrollHost || typeof ResizeObserver === 'undefined') return
+  const observer = new ResizeObserver(() => scrollToSection(key, { smooth: false }))
+  const userEvents = ['wheel', 'touchstart', 'pointerdown', 'keydown']
+  const stop = () => {
+    observer.disconnect()
+    for (const name of userEvents) scrollHost.removeEventListener(name, stop)
+    stopSectionFollow = null
+  }
+  for (const name of userEvents) scrollHost.addEventListener(name, stop, { passive: true })
+  for (const section of sectionElements.value) if (section.el) observer.observe(section.el)
+  stopSectionFollow = stop
+}
+
+const selectSection = (key) => {
+  stopSectionFollow?.()
+  scrollToSection(key)
 }
 
 const scrollToFocusTarget = async () => {
   const focusTarget = String(props.focusTarget || '').trim()
   if (focusTarget === 'local-acceleration') {
     await nextTick()
-    scrollToSection('local-acceleration')
+    focusSection('local-acceleration')
     return
   }
   if (focusTarget === 'storage') {
     await nextTick()
-    scrollToSection('storage')
+    focusSection('storage')
     return
   }
   if (focusTarget === 'data-backup') {
     await nextTick()
-    scrollToSection('data-backup')
+    focusSection('data-backup')
     return
   }
   if (focusTarget === 'ai' || focusTarget === 'local-search' || focusTarget === 'auto-reply') {
     await nextTick()
-    scrollToSection('ai')
+    focusSection('ai')
     return
   }
   if (focusTarget === 'voice') {
     await nextTick()
-    scrollToSection('voice')
+    focusSection('voice')
     return
   }
   if (focusTarget !== 'log-file') {
@@ -2063,6 +2087,7 @@ const refreshSettingsDialogData = async () => {
 
 watch(() => props.open, async (isOpen) => {
   if (!isOpen) {
+    stopSectionFollow?.()
     clearVoiceModelDownloadPolling()
     return
   }
@@ -2096,6 +2121,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  stopSectionFollow?.()
   if (!process.client || typeof window === 'undefined') return
   window.removeEventListener('keydown', onEscKeydown)
   if (mcpCopiedTimer) {

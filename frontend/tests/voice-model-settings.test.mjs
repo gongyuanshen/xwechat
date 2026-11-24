@@ -152,5 +152,5 @@ test('settings derives model state from current files and retires stale download
 
 test('chat model-management link focuses the voice settings section', () => {
   assert.match(settingsSource, /if \(focusTarget === 'voice'\)/)
-  assert.match(settingsSource, /scrollToSection\('voice'\)/)
+  assert.match(settingsSource, /focusSection\('voice'\)/)
 })
