@@ -26,3 +26,17 @@ def selected_model(store):
         choice = dict(profile_id=profile['id'], model_id=profile['model'], reasoning_effort=None)
         store.put('selected_model', choice, id='global')
         return choice
+
+
+def follow_profile_edit(store, old, profile):
+    """编辑配置后：选中原默认模型时跟随新默认模型；选中其他模型且服务地址或协议已变时要求重新选择。"""
+    with store.lock:
+        saved = store.get('selected_model', 'global')
+        if not saved or saved.get('profile_id') != profile['id']:
+            return
+        if saved['model_id'] == old['model']:
+            if profile['model'] != old['model']:
+                # 推理档位属于旧模型，不能沿用到新模型。
+                store.put('selected_model', dict(profile_id=profile['id'], model_id=profile['model'], reasoning_effort=None), id='global')
+        elif (profile['base_url'].rstrip('/'), profile['protocol']) != (old['base_url'].rstrip('/'), old['protocol']):
+            store.put('selected_model', {'unavailable': True, 'reason': 'profile_changed'}, id='global')

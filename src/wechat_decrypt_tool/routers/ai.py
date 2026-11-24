@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from ..ai.providers import PRESETS, ProviderFailure, public_profile, validate_url
 from ..ai.schemas import Defaults, ModelListInput, ProviderInput, RuleInput, TaskInput
 from ..ai.service import get_ai_service
-from ..ai.model_selection import SelectedModel, selected_model
+from ..ai.model_selection import SelectedModel, follow_profile_edit, selected_model
 from ..ai.diagnostics import event as diagnostic_event
 import logging
 from ..chat_helpers import _resolve_account_dir
@@ -104,16 +104,19 @@ def write_profile(body, id=None):
         validate_url(profile["base_url"])
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
-    old = get_record("profile", id) if id else {}
-    if 'compaction_policy' not in body.model_fields_set and old.get('compaction_policy'):
-        # 旧设置界面保存模型时保留通过 API 配置的上下文策略。
-        profile['compaction_policy'] = old['compaction_policy']
-    if profile["api_key"] is None:
-        if old.get("api_key") and (profile["base_url"].rstrip("/") != old["base_url"].rstrip("/") or profile["protocol"] != old["protocol"]):
-            raise HTTPException(422, "修改服务地址或协议后，请重新输入密钥再保存")
-        profile["api_key"] = old.get("api_key", "")
-    profile["revision"] = old.get("revision", 0) + 1
-    saved = service.store.put('profile', profile, id=id)
+    with service.store.lock:
+        old = get_record("profile", id) if id else {}
+        if 'compaction_policy' not in body.model_fields_set and old.get('compaction_policy'):
+            # 旧设置界面保存模型时保留通过 API 配置的上下文策略。
+            profile['compaction_policy'] = old['compaction_policy']
+        if profile["api_key"] is None:
+            if old.get("api_key") and (profile["base_url"].rstrip("/") != old["base_url"].rstrip("/") or profile["protocol"] != old["protocol"]):
+                raise HTTPException(422, "修改服务地址或协议后，请重新输入密钥再保存")
+            profile["api_key"] = old.get("api_key", "")
+        profile["revision"] = old.get("revision", 0) + 1
+        saved = service.store.put('profile', profile, id=id)
+        if id:
+            follow_profile_edit(service.store, old, saved)
     diagnostic_event('profile.saved', profile_id=saved['id'], revision=saved['revision'], model=saved['model'], protocol=saved['protocol'],
                      changed_fields=[k for k in profile if profile[k] != old.get(k)])
     return public_profile(saved)

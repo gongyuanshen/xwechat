@@ -37,7 +37,9 @@ export function agentModelSelection(shared, request) {
       if (state.dirty) return
       const choice = data.selected_model || {}
       state.choice = choice.profile_id ? fields(choice) : {}
-      state.notice = choice.unavailable ? '已选服务已删除，请重新选择模型。' : ''
+      state.notice = !choice.unavailable ? ''
+        : choice.reason === 'profile_changed' ? '已选服务的地址或协议已修改，原模型不再可用，请重新选择模型。'
+        : '已选服务已删除，请重新选择模型。'
     },
   }
   controllers.set(state, controller)
