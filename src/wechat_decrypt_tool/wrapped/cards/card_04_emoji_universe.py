@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ._shared import _list_session_usernames, _year_range_epoch_seconds
 from ...snapshot_registry import resolve_account_database_dir
 
 import functools
@@ -246,20 +247,6 @@ def _extract_packed_emoji_meta(packed_info_data: Any) -> tuple[Optional[int], Op
     return field1, field2
 
 
-def _year_range_epoch_seconds(year: int) -> tuple[int, int]:
-    start = int(datetime(year, 1, 1).timestamp())
-    end = int(datetime(year + 1, 1, 1).timestamp())
-    return start, end
-
-
-def _mask_name(name: str) -> str:
-    s = str(name or "").strip()
-    if not s:
-        return ""
-    # 全星号：不保留任何原字符，长度封顶 6，数字类信息不经过本函数
-    return "*" * max(1, min(len(s), 6))
-
-
 def _weekday_name_zh(weekday_index: int) -> str:
     labels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
     if 0 <= weekday_index < len(labels):
@@ -289,33 +276,6 @@ def _list_message_tables(conn: sqlite3.Connection) -> list[str]:
         ln = name.lower()
         if ln.startswith(("msg_", "chat_")):
             out.append(name)
-    return out
-
-
-def _list_session_usernames(session_db_path: Path) -> list[str]:
-    if not session_db_path.exists():
-        return []
-    conn = sqlite3.connect(str(session_db_path))
-    try:
-        try:
-            rows = conn.execute("SELECT username FROM SessionTable").fetchall()
-        except sqlite3.OperationalError:
-            rows = conn.execute("SELECT username FROM Session").fetchall()
-    except Exception:
-        rows = []
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-    out: list[str] = []
-    for r in rows:
-        if not r or not r[0]:
-            continue
-        u = str(r[0]).strip()
-        if u:
-            out.append(u)
     return out
 
 
