@@ -70,20 +70,6 @@ def check_request(profile, messages, extra=None, *, output_tokens=None):
     return amount
 
 
-def material_limit(profile, budget, overhead=0):
-    """资料占窗口的 10%；运行预算收缩时同比降低，并为完整请求留安全余量。"""
-    token = active_budget.set(None)
-    try:
-        initial = input_limit(profile)
-    finally:
-        active_budget.reset(token)
-    target = int((profile.get('context_window') or 32768) * 0.1 * min(1, budget / initial))
-    available = min(target, budget - overhead - 512)
-    if available < 2:
-        raise ContextOverflow('当前请求没有足够空间读取资料，需要先整理背景。')
-    return available
-
-
 def message_payload(message, timezone_offset=0):
     """模型只接收必要来源信息；附件原始结构保存在本地，不重复计入文本。"""
     item = {key: message.get(key) for key in ('source', 'username', 'time', 'sender', 'text')}

@@ -526,13 +526,6 @@ def _delete_all_voice_transcript_caches_with_accounts() -> tuple[dict[str, Any],
     return result, successful_accounts
 
 
-def delete_all_voice_transcript_caches() -> dict[str, Any]:
-    """Delete project-generated transcripts across every safe application account."""
-
-    result, _successful_accounts = _delete_all_voice_transcript_caches_with_accounts()
-    return result
-
-
 class _VoiceTranscriptionCancelled(RuntimeError):
     """Internal cooperative cancellation used by bounded batch workers."""
 

@@ -117,30 +117,3 @@ def continuation_suffixes(prefix, evidence, references):
         if valid_answer_references(marker, evidence, references):
             markers.extend([marker, f'[[{key}]]'])
     return [marker[len(tail[0]):] for marker in markers if marker.lower().startswith(tail[0].lower())]
-
-
-def valid_answer_continuation(prefix, suffix, evidence, references, *, complete=False, remaining=...):
-    remaining = continuation_suffixes(prefix, evidence, references) if remaining is ... else remaining
-    if remaining is not None and not any(
-        suffix.lower().startswith(end.lower()) or (not complete and end.lower().startswith(suffix.lower()))
-        for end in remaining
-    ):
-        return False
-    # 检查新输出的开头，允许后文再次提到事实，但不能从已有标题或长开头重写。
-    beginning, new = prefix.lstrip(), suffix.lstrip()
-    if remaining:
-        completed = next((end for end in remaining if suffix.lower().startswith(end.lower())), None)
-        if completed is not None:
-            new = suffix[len(completed):].lstrip()
-    first_line = beginning.split('\n', 1)[0]
-    if (len(beginning) >= 80 and new.startswith(beginning[:80])) or (
-        first_line.startswith('#') and len(first_line) >= 8 and
-        (new == first_line and complete or new.startswith(first_line + '\n'))
-    ):
-        return False
-    if complete:
-        # 已闭合标记由现有身份校验检查；其余协议开头不能作为完整回答保存。
-        rest = re.sub(r'\[\[[^\[\]]+\]\]', '', prefix + suffix)
-        if '[[' in rest:
-            return False
-    return True
