@@ -35,6 +35,7 @@ from .xlsx_export import build_xlsx_workbook
 
 # Reuse wxemoji mapping and static asset copying from chat export.
 from .chat_export_service import (  # pylint: disable=protected-access
+    UiAssetsUnavailableError,
     _load_wechat_emoji_regex,
     _load_wechat_emoji_table,
     _resolve_ui_public_dir,
@@ -1734,17 +1735,16 @@ class SnsExportManager:
         incremental_changed_users: set[str] = set()
         incremental_folder_name = ""
         incremental_desktop_target_root: Optional[Path] = None
-        ui_public_dir = _resolve_ui_public_dir()
-
-        emoji_table = _load_wechat_emoji_table()
-        emoji_regex = _load_wechat_emoji_regex()
+        # Only HTML output renders emoji images; other formats do not need UI assets.
+        if export_format == "html":
+            ui_public_dir = _resolve_ui_public_dir()
+            emoji_table = _load_wechat_emoji_table()
+            emoji_regex = _load_wechat_emoji_regex()
 
         def render_text_with_emojis(v: Any) -> str:
             text = str(v or "")
             if not text:
                 return ""
-            if not emoji_table or emoji_regex is None:
-                return _esc_text(text)
 
             parts: list[str] = []
             last = 0
@@ -2850,16 +2850,7 @@ class SnsExportManager:
                             zf.writestr(html_assets["jsPath"], html_assets["jsPayload"])
                             written.add(html_assets["jsPath"])
 
-                    repo_root = Path(__file__).resolve().parents[2]
-                    wxemoji_src: Optional[Path] = None
-                    if ui_public_dir is not None:
-                        cand = Path(ui_public_dir) / "wxemoji"
-                        if cand.is_dir():
-                            wxemoji_src = cand
-                    if wxemoji_src is None:
-                        cand = repo_root / "frontend" / "public" / "wxemoji"
-                        if cand.is_dir():
-                            wxemoji_src = cand
+                    wxemoji_src = ui_public_dir / "wxemoji"
 
                 users = _load_sns_export_snapshot(
                     account_dir,
@@ -3035,12 +3026,12 @@ class SnsExportManager:
                         if str(item.get("username") or "") in incremental_changed_users
                     ]
                 )
-                if export_format == "html" and wxemoji_src is not None and (
+                if export_format == "html" and (
                     output_mode == "zip" or render_prepared_users
                 ):
                     if output_mode == "zip":
                         _zip_write_tree(zf=zf, src_dir=wxemoji_src, dest_prefix="wxemoji", written=written)
-                    elif emoji_table and emoji_regex is not None:
+                    else:
                         emoji_source_root = wxemoji_src.resolve()
                         serialized_posts = json.dumps(
                             [item.get("posts") or [] for item in render_prepared_users],
@@ -3054,7 +3045,7 @@ class SnsExportManager:
                         for relative in sorted(value for value in emoji_values if value):
                             source = (emoji_source_root / Path(*relative.split("/"))).resolve()
                             if emoji_source_root not in source.parents or not source.is_file():
-                                continue
+                                raise UiAssetsUnavailableError(f"微信表情映射引用的图片不存在或越出表情目录：wxemoji/{relative}")
                             arcname = f"wxemoji/{relative}"
                             if arcname in written:
                                 continue

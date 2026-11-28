@@ -31,6 +31,7 @@ from .routers.decrypt import router as _decrypt_router
 from .routers.snapshot_refresh import router as _snapshot_refresh_router
 from .snapshot_refresh import SNAPSHOT_REFRESH
 from .snapshot_registry import SnapshotReadMiddleware, SnapshotRegistryError
+from .chat_export_service import UiAssetsUnavailableError
 from .routers.import_decrypted import router as _import_decrypted_router
 from .routers.health import router as _health_router
 from .routers.admin import router as _admin_router
@@ -63,6 +64,12 @@ app.add_middleware(SnapshotReadMiddleware)
 async def _snapshot_registry_error(request: Request, exc: SnapshotRegistryError):
     logger.error("Snapshot registry error: %s", exc, exc_info=True)
     return JSONResponse(status_code=409, content={"detail": str(exc), "type": type(exc).__name__})
+
+
+@app.exception_handler(UiAssetsUnavailableError)
+async def _ui_assets_unavailable(request: Request, exc: UiAssetsUnavailableError):
+    logger.error("UI assets unavailable: %s", exc)
+    return JSONResponse(status_code=503, content={"detail": str(exc), "type": type(exc).__name__})
 
 
 # 设置自定义路由类

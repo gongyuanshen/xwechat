@@ -249,32 +249,61 @@ def _resolve_export_output_dir(account_dir: Path, output_dir_raw: Any) -> Path:
     return out_dir.resolve()
 
 
-def _resolve_ui_public_dir() -> Optional[Path]:
-    """Best-effort resolve Nuxt generated public directory for exporting UI CSS.
+class UiAssetsUnavailableError(RuntimeError):
+    """UI assets needed for emoji rendering or HTML exports are missing or unreadable."""
 
-    Priority:
-      1) `WECHAT_TOOL_UI_DIR` env
-      2) repo default `frontend/.output/public`
+
+_WECHAT_EMOJI_TABLE_RELATIVE = Path("wxemoji") / "wechat-emojis.json"
+
+# Every icon the HTML exporter can reference through `wechat_icon(...)`.
+_HTML_EXPORT_WECHAT_ICONS = (
+    "WeChat-Icon-Logo.wine.svg",
+    "excel.png",
+    "overdue.png",
+    "pdf.png",
+    "wechat-audio-call.svg",
+    "wechat-returned.png",
+    "wechat-trans-icon1.png",
+    "wechat-trans-icon2.png",
+    "wechat-trans-icon3.png",
+    "wechat-trans-icon4.png",
+    "wechat-video-call.svg",
+    "word.png",
+    "zip.png",
+)
+
+
+def _resolve_ui_public_dir() -> Path:
+    """Resolve the UI directory that holds export assets (wxemoji, fonts, WeChat icons).
+
+    `WECHAT_TOOL_UI_DIR` (set by the packaged desktop app) is used as configured.
+    Without it, the repository's generated Nuxt output, copied desktop UI, or
+    `frontend/public` sources are used, in that order.
     """
 
     ui_dir_env = os.environ.get("WECHAT_TOOL_UI_DIR", "").strip()
-    candidates: list[Path] = []
     if ui_dir_env:
-        candidates.append(Path(ui_dir_env))
+        configured = Path(ui_dir_env)
+        if not (configured / _WECHAT_EMOJI_TABLE_RELATIVE).is_file():
+            raise UiAssetsUnavailableError(
+                f"WECHAT_TOOL_UI_DIR 指向的界面资源目录不完整：缺少 {configured / _WECHAT_EMOJI_TABLE_RELATIVE}"
+            )
+        return configured
 
-    # Repo defaults: generated Nuxt output or checked-in desktop UI assets.
     repo_root = Path(__file__).resolve().parents[2]
-    candidates.append(repo_root / "frontend" / ".output" / "public")
-    candidates.append(repo_root / "desktop" / "resources" / "ui")
-
-    for p in candidates:
-        try:
-            nuxt_dir = p / "_nuxt"
-            if nuxt_dir.is_dir() and any(nuxt_dir.glob("entry.*.css")):
-                return p
-        except Exception:
-            continue
-    return None
+    candidates = (
+        repo_root / "frontend" / ".output" / "public",
+        repo_root / "desktop" / "resources" / "ui",
+        repo_root / "frontend" / "public",
+    )
+    for candidate in candidates:
+        if (candidate / _WECHAT_EMOJI_TABLE_RELATIVE).is_file():
+            return candidate
+    checked = "；".join(str(c) for c in candidates)
+    raise UiAssetsUnavailableError(
+        f"找不到界面资源目录（需要 {_WECHAT_EMOJI_TABLE_RELATIVE}）。已检查：{checked}。"
+        "请重新安装应用，或在源码环境中设置 WECHAT_TOOL_UI_DIR。"
+    )
 
 
 _CHAT_HISTORY_URL_TAG_RE = re.compile(r"(?i)<(?:sourceheadurl|cdnurlstring|encrypturlstring|externurl)>(https?://[^<\s]+)<")
@@ -642,39 +671,27 @@ def _load_ui_css_bundle(*, ui_public_dir: Optional[Path], report: dict[str, Any]
 def _load_wechat_emoji_table() -> dict[str, str]:
     """Load WeChat built-in text emoji mapping from one fixed UI asset path."""
 
-    ui_public_dir = _resolve_ui_public_dir()
-    if ui_public_dir is None:
-        return {}
-
-    path = Path(ui_public_dir) / "wxemoji" / "wechat-emojis.json"
+    path = _resolve_ui_public_dir() / _WECHAT_EMOJI_TABLE_RELATIVE
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    except (OSError, ValueError) as exc:
+        raise UiAssetsUnavailableError(f"无法读取微信表情映射 {path}：{exc}") from exc
     if not isinstance(payload, dict):
-        return {}
-    return {
+        raise UiAssetsUnavailableError(f"微信表情映射格式无效（应为对象）：{path}")
+    table = {
         str(key): str(value)
         for key, value in payload.items()
         if str(key or "").strip() and str(value or "").strip()
     }
+    if not table:
+        raise UiAssetsUnavailableError(f"微信表情映射为空：{path}")
+    return table
 
 
 @functools.lru_cache(maxsize=1)
-def _load_wechat_emoji_regex() -> Optional[re.Pattern[str]]:
-    table = _load_wechat_emoji_table()
-    if not table:
-        return None
-
-    keys = sorted(table.keys(), key=len, reverse=True)
-    escaped = [re.escape(k) for k in keys if k]
-    if not escaped:
-        return None
-
-    try:
-        return re.compile(f"({'|'.join(escaped)})")
-    except Exception:
-        return None
+def _load_wechat_emoji_regex() -> re.Pattern[str]:
+    keys = sorted(_load_wechat_emoji_table().keys(), key=len, reverse=True)
+    return re.compile(f"({'|'.join(re.escape(k) for k in keys)})")
 
 
 def _zip_write_tree(
@@ -686,41 +703,27 @@ def _zip_write_tree(
 ) -> int:
     """Recursively add a directory tree to the zip under `dest_prefix`.
 
-    Skips any file whose `arcname` already exists in `written`.
+    Skips any file whose `arcname` already exists in `written`. A missing
+    `src_dir` adds nothing; read or write failures propagate.
     Returns number of files written.
     """
 
-    try:
-        if not src_dir.exists() or (not src_dir.is_dir()):
-            return 0
-    except Exception:
+    if not src_dir.is_dir():
         return 0
 
     prefix = str(dest_prefix or "").strip().strip("/").replace("\\", "/")
     count = 0
-    try:
-        for p in src_dir.rglob("*"):
-            try:
-                if not p.is_file():
-                    continue
-            except Exception:
-                continue
-            try:
-                rel = p.relative_to(src_dir).as_posix()
-            except Exception:
-                rel = p.name
-            arc = f"{prefix}/{rel}" if prefix else rel
-            arc = arc.lstrip("/").replace("\\", "/")
-            if not arc or arc in written:
-                continue
-            try:
-                zf.write(str(p), arcname=arc)
-            except Exception:
-                continue
-            written.add(arc)
-            count += 1
-    except Exception:
-        return count
+    for p in src_dir.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(src_dir).as_posix()
+        arc = f"{prefix}/{rel}" if prefix else rel
+        arc = arc.lstrip("/").replace("\\", "/")
+        if not arc or arc in written:
+            continue
+        zf.write(str(p), arcname=arc)
+        written.add(arc)
+        count += 1
     return count
 
 
@@ -2053,26 +2056,27 @@ class ChatExportManager:
                         js_asset_path,
                     }
 
-                    if ui_public_dir is not None:
-                        _zip_write_tree(
-                            zf=zf,
-                            src_dir=Path(ui_public_dir) / "fonts",
-                            dest_prefix="fonts",
-                            written=static_written,
-                        )
-                        _zip_write_tree(
-                            zf=zf,
-                            src_dir=Path(ui_public_dir) / "wxemoji",
-                            dest_prefix="wxemoji",
-                            written=static_written,
-                        )
-                        _zip_write_tree(
-                            zf=zf,
-                            src_dir=Path(ui_public_dir) / "assets" / "images" / "wechat",
-                            dest_prefix="assets/images/wechat",
-                            written=static_written,
-                        )
+                    _zip_write_tree(
+                        zf=zf,
+                        src_dir=ui_public_dir / "fonts",
+                        dest_prefix="fonts",
+                        written=static_written,
+                    )
+                    _zip_write_tree(
+                        zf=zf,
+                        src_dir=ui_public_dir / "wxemoji",
+                        dest_prefix="wxemoji",
+                        written=static_written,
+                    )
+                    _zip_write_tree(
+                        zf=zf,
+                        src_dir=ui_public_dir / "assets" / "images" / "wechat",
+                        dest_prefix="assets/images/wechat",
+                        written=static_written,
+                    )
 
+                    # Source checkouts keep some icons outside the generated UI;
+                    # packaged builds merge them into WECHAT_TOOL_UI_DIR (desktop/scripts/copy-ui.cjs).
                     _zip_write_tree(
                         zf=zf,
                         src_dir=repo_root / "frontend" / "public" / "assets" / "images" / "wechat",
@@ -2085,11 +2089,19 @@ class ChatExportManager:
                         dest_prefix="assets/images/wechat",
                         written=static_written,
                     )
+                    missing_icons = [
+                        name for name in _HTML_EXPORT_WECHAT_ICONS
+                        if f"assets/images/wechat/{name}" not in static_written
+                    ]
+                    if missing_icons:
+                        raise UiAssetsUnavailableError(
+                            f"界面资源目录缺少 HTML 导出所需的图标：{', '.join(missing_icons)}（{ui_public_dir}）"
+                        )
                     _safe_trace(
                         trace,
                         "html_assets_done",
                         durationMs=_elapsed_ms(phase_started),
-                        uiPublicDir=str(ui_public_dir) if ui_public_dir is not None else "",
+                        uiPublicDir=str(ui_public_dir),
                         staticFiles=len(static_written),
                     )
                     _raise_if_job_cancelled(job, "html_assets_done", trace)
@@ -5430,8 +5442,6 @@ def _write_conversation_html(
         text = str(v or "")
         if not text:
             return ""
-        if not emoji_table or emoji_regex is None:
-            return esc_text(text)
 
         parts: list[str] = []
         last = 0

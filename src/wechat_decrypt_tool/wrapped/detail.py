@@ -230,7 +230,7 @@ def build_wrapped_annual_detail(
             emoji_regex, canonical_keys = _load_wechat_text_emoji_matcher()
             def emoji_occurrences(body: str) -> int:
                 normalized = _normalize_index_text_for_emoji_match(body)
-                bracket_count = sum(canonical_keys[match.group(0)] == emoji_text for match in emoji_regex.finditer(normalized)) if emoji_regex is not None else 0
+                bracket_count = sum(canonical_keys[match.group(0)] == emoji_text for match in emoji_regex.finditer(normalized))
                 return bracket_count + _extract_unicode_emoji_tokens(normalized).count(emoji_text)
             conn.create_function("wrapped_emoji_count", 1, emoji_occurrences, deterministic=True)
         # Keep timestamp columns bare so both second and millisecond archives
