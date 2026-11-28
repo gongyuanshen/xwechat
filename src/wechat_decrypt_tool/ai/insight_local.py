@@ -71,19 +71,6 @@ def message_state(item, context, *, private_chat=False):
     return '\n'.join(lines)
 
 
-def message_label(item, answers):
-    values, reasons = {}, []
-    for key, names in [('emotion', EMOTIONS), ('intent', INTENTS)]:
-        distribution = answers[key]['probabilities']
-        best = max(distribution, key=distribution.get)
-        probability = distribution[best]
-        # Explicit display rule, not a fallback for failed/missing model output.
-        values[key] = names[best] if probability >= .5 else None
-        reasons.append(f"{'情绪' if key == 'emotion' else '意图'}候选「{names[best]}」模型分值 {probability:.1%}" +
-                       ('，未达到 50% 展示阈值' if probability < .5 else ''))
-    return dict(source=item['source'], **values, reason='本地 Laya 分类；' + '；'.join(reasons) + '。分值不是心理测量准确率。', sources=[item['source']])
-
-
 def evidence(text, sources):
     return dict(text=text, sources=list(dict.fromkeys(sources))[:3])
 

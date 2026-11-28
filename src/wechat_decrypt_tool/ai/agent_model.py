@@ -1,5 +1,4 @@
 """共享模型响应文本、用量采集和协议异常，不包含旧执行器。"""
-from .providers import ProviderFailure
 
 
 class ActionFormatError(ValueError):
@@ -7,13 +6,6 @@ class ActionFormatError(ValueError):
         super().__init__(code)
         self.code, self.fields = code, fields or []
         self.correction = correction
-
-
-class AgentFailure(ProviderFailure):
-    def __init__(self, message, *, category='protocol', phase='decision', retryable=True, diagnostic_id='', fields=None):
-        super().__init__(message, authentication=category == 'authentication')
-        self.detail = dict(category=category, phase=phase, retryable=retryable,
-                           action='retry' if retryable else 'settings', diagnostic_id=diagnostic_id, fields=fields or [])
 
 
 class AgentModel:
