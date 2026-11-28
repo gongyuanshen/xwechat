@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ._shared import _mask_name, _year_range_epoch_seconds
 from ...snapshot_registry import resolve_account_database_dir
 
 import heapq
@@ -25,21 +26,6 @@ from ...logging_config import get_logger
 from .. import resolve_wrapped_self_username
 
 logger = get_logger(__name__)
-
-
-def _year_range_epoch_seconds(year: int) -> tuple[int, int]:
-    # Use local time boundaries (same semantics as sqlite "localtime").
-    start = int(datetime(year, 1, 1).timestamp())
-    end = int(datetime(year + 1, 1, 1).timestamp())
-    return start, end
-
-
-def _mask_name(name: str) -> str:
-    s = str(name or "").strip()
-    if not s:
-        return ""
-    # 全星号：不保留任何原字符，长度封顶 6，数字类信息不经过本函数
-    return "*" * max(1, min(len(s), 6))
 
 
 def _format_duration_zh(seconds: int | None) -> str:

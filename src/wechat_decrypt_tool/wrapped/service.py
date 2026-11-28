@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .cards._shared import _list_message_tables
 
 import json
 import sqlite3
@@ -8,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from ..chat_helpers import _decode_sqlite_text, _iter_message_db_paths, _quote_ident, _resolve_account_dir
+from ..chat_helpers import _iter_message_db_paths, _quote_ident, _resolve_account_dir
 from ..chat_search_index import get_chat_search_index_db_path, get_chat_search_index_status
 from ..logging_config import get_logger
 from . import WRAPPED_CONTRACT_VERSION, resolve_wrapped_self_username
@@ -145,24 +146,6 @@ def _prepare_wrapped_derived_data(account_dir: Path) -> None:
 
 def _default_year() -> int:
     return datetime.now().year
-
-
-def _list_message_tables(conn: sqlite3.Connection) -> list[str]:
-    try:
-        rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-    except Exception:
-        return []
-    names: list[str] = []
-    for r in rows:
-        if not r or not r[0]:
-            continue
-        name = _decode_sqlite_text(r[0]).strip()
-        if not name:
-            continue
-        ln = name.lower()
-        if ln.startswith(("msg_", "chat_")):
-            names.append(name)
-    return names
 
 
 def list_wrapped_available_years(*, account_dir: Path) -> list[int]:

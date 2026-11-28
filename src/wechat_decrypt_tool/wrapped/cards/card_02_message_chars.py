@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ._shared import _list_message_tables, _list_session_usernames, _mask_name, _year_range_epoch_seconds
 from ...snapshot_registry import resolve_account_database_dir
 
 import hashlib
@@ -17,7 +18,6 @@ from pypinyin import lazy_pinyin, Style
 from ...chat_helpers import (
     _build_avatar_url,
     _decode_message_content,
-    _decode_sqlite_text,
     _extract_xml_attr,
     _extract_xml_tag_text,
     _iter_message_db_paths,
@@ -496,31 +496,6 @@ def compute_keyboard_stats(
     }
 
 
-def _year_range_epoch_seconds(year: int) -> tuple[int, int]:
-    # Use local time boundaries (same semantics as sqlite "localtime").
-    start = int(datetime(year, 1, 1).timestamp())
-    end = int(datetime(year + 1, 1, 1).timestamp())
-    return start, end
-
-
-def _list_message_tables(conn: sqlite3.Connection) -> list[str]:
-    try:
-        rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-    except Exception:
-        return []
-    names: list[str] = []
-    for r in rows:
-        if not r or not r[0]:
-            continue
-        name = _decode_sqlite_text(r[0]).strip()
-        if not name:
-            continue
-        ln = name.lower()
-        if ln.startswith(("msg_", "chat_")):
-            names.append(name)
-    return names
-
-
 # Book analogy table (for "sent chars").
 _BOOK_ANALOGIES: list[dict[str, Any]] = [
     {"min": 1, "max": 100_000, "level": "小量级", "options": ["一本《小王子》", "一本《解忧杂货店》"]},
@@ -913,41 +888,6 @@ _VOIP_BUBBLE_RE = re.compile(r"(<VoIPBubbleMsg[^>]*>.*?</VoIPBubbleMsg>)", flags
 _VOIP_DURATION_RE = re.compile(r"通话时长\s*(\d+):(\d+)(?::(\d+))?")
 # 用不含前缀的子串以同时覆盖「已拒绝/对方已拒绝」「对方无应答」「忙线未接听」等变体。
 _VOIP_MISSED_MARKERS = ("已取消", "已拒绝", "未接听", "无应答")
-
-
-def _mask_name(name: str) -> str:
-    s = str(name or "").strip()
-    if not s:
-        return ""
-    # 全星号：不保留任何原字符，长度封顶 6，数字类信息不经过本函数
-    return "*" * max(1, min(len(s), 6))
-
-
-def _list_session_usernames(session_db_path: Path) -> list[str]:
-    if not session_db_path.exists():
-        return []
-    conn = sqlite3.connect(str(session_db_path))
-    try:
-        try:
-            rows = conn.execute("SELECT username FROM SessionTable").fetchall()
-        except sqlite3.OperationalError:
-            rows = conn.execute("SELECT username FROM Session").fetchall()
-    except Exception:
-        rows = []
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-    out: list[str] = []
-    for r in rows:
-        if not r or not r[0]:
-            continue
-        u = str(r[0]).strip()
-        if u:
-            out.append(u)
-    return out
 
 
 def _voicelength_to_seconds(raw: Any) -> int:
