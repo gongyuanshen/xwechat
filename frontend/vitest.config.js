@@ -4,12 +4,15 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
-  plugins: [vue()],
+  plugins: [vue({ template: { transformAssetUrls: false } })],
   resolve: {
     alias: [
       { find: '~', replacement: fileURLToPath(new URL('.', import.meta.url)) },
       { find: '@', replacement: fileURLToPath(new URL('.', import.meta.url)) },
     ]
+  },
+  server: {
+    fs: { allow: [fileURLToPath(new URL('..', import.meta.url))] }
   },
   test: {
     environment: 'happy-dom',
