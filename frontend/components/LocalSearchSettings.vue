@@ -343,7 +343,7 @@ const importFiles=()=>{
   return act(async()=>{await request(`/models/${importId.value}/import`,{method:'POST',body:{path:importPath.value}});dialog.value=''},'离线文件已提交校验')
 }
 function trapFocus(event){const items=[...dialogRef.value.querySelectorAll('button:not(:disabled),input:not(:disabled),[href],select,[tabindex="0"]')];const first=items[0],last=items.at(-1);if(!first){event.preventDefault();return}if(event.shiftKey && (document.activeElement===first || document.activeElement===dialogRef.value)){event.preventDefault();last.focus()}else if(!event.shiftKey && (document.activeElement===last || document.activeElement===dialogRef.value)){event.preventDefault();first.focus()}}
-watch(dialog,async(value,oldValue)=>{dialogError.value='';if(value){if(!oldValue)previousFocus=document.activeElement;await nextTick();dialogRef.value?.focus()}else{previousFocus?.focus?.()}})
+watch(dialog,async(value,oldValue)=>{dialogError.value='';if(value){if(!oldValue)previousFocus=document.activeElement;await nextTick();dialogRef.value?.focus()}else{await nextTick();previousFocus?.focus?.()}})
 function subscribe(){
   stopEvents?.()
   const current=account.value

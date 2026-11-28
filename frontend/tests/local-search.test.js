@@ -26,7 +26,7 @@ beforeEach(()=>{
   vi.stubGlobal('useRoute',()=>({params:{username:'current'}}))
 })
 afterEach(()=>{wrapper?.unmount();vi.unstubAllGlobals();vi.useRealTimers()})
-async function open(props={}){wrapper=mount(LocalSearchSettings,{props,attachTo:document.body,global:{stubs:{teleport:true}}});await flushPromises()}
+async function open(props={},global={stubs:{teleport:true}}){wrapper=mount(LocalSearchSettings,{props,attachTo:document.body,global});await flushPromises()}
 const button=text=>wrapper.findAll('button').find(b=>b.text()===text)
 const scopeButton=(category,text)=>wrapper.find(`[data-category="${category}"]`).findAll('button').find(b=>b.text()===text)
 const primary=()=>wrapper.find('.lss-start button')
@@ -268,10 +268,12 @@ it('自定义日期未填写时解释原因，补全后允许开始',async()=>{
   expect(primary().attributes('disabled')).toBeUndefined()
 })
 it('模型管理使用二级弹窗并恢复焦点',async()=>{
-  await open();button('更换模型').element.focus();await button('更换模型').trigger('click');await flushPromises()
-  expect(wrapper.find('[role=dialog]').attributes('aria-label')).toBe('选择检索模型')
-  expect(wrapper.find('.lss-models').exists()).toBe(true)
-  await wrapper.find('[aria-label=关闭]').trigger('click');await flushPromises()
+  // Real Teleport: the dialog lives in body, outside the inert settings container, as in the app.
+  await open({},{});button('更换模型').element.focus();await button('更换模型').trigger('click');await flushPromises()
+  const dialog=document.body.querySelector('[role=dialog]')
+  expect(dialog.getAttribute('aria-label')).toBe('选择检索模型')
+  expect(document.body.querySelector('.lss-models')).not.toBeNull()
+  dialog.querySelector('[aria-label=关闭]').click();await flushPromises()
   expect(document.activeElement).toBe(button('更换模型').element)
 })
 it('切换账号清空草稿和提示，不把旧任务提交到新账号',async()=>{

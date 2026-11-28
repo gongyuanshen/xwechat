@@ -1,4 +1,4 @@
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AiSettings from '../components/AiSettings.vue'
@@ -135,17 +135,21 @@ describe('AI 服务预设', () => {
   })
 
   it('搜索列表支持 Tab 焦点循环和 Escape 关闭后焦点恢复', async () => {
-    await open()
-    await wrapper.find('[aria-label="关闭服务弹窗"]').trigger('click')
+    // Real Teleport: the dialog lives in body, outside the inert settings container, as in the app.
+    wrapper = mount(AiSettings, { attachTo: document.body })
+    await flushPromises()
+    const page = new DOMWrapper(document.body)
+    await wrapper.find('.ais-add').trigger('click')
+    await page.find('[aria-label="关闭服务弹窗"]').trigger('click')
     wrapper.find('.ais-add').element.focus()
     await wrapper.find('.ais-add').trigger('click')
-    const dialog = wrapper.find('[role=dialog]')
+    const dialog = page.find('[role=dialog]')
     await dialog.trigger('keydown', { key: 'Tab', shiftKey: true })
-    expect(document.activeElement).toBe(wrapper.findAll('.ais-provider-choice').at(-1).element)
+    expect(document.activeElement).toBe(page.findAll('.ais-provider-choice').at(-1).element)
     await dialog.trigger('keydown', { key: 'Tab' })
-    expect(document.activeElement).toBe(wrapper.find('[aria-label="关闭服务弹窗"]').element)
+    expect(document.activeElement).toBe(page.find('[aria-label="关闭服务弹窗"]').element)
     await dialog.trigger('keydown', { key: 'Escape' })
-    expect(wrapper.find('[role=dialog]').exists()).toBe(false)
+    expect(page.find('[role=dialog]').exists()).toBe(false)
     expect(document.activeElement).toBe(wrapper.find('.ais-add').element)
   })
 
