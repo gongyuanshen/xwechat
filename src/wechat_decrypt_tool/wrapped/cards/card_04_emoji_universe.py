@@ -4,7 +4,6 @@ from ...snapshot_registry import resolve_account_database_dir
 import functools
 import hashlib
 import html
-import json
 import re
 import sqlite3
 from collections import Counter, defaultdict
@@ -26,6 +25,7 @@ from ...chat_helpers import (
     _resource_lookup_chat_id,
     _should_keep_session,
 )
+from ...chat_export_service import UiAssetsUnavailableError, _load_wechat_emoji_table
 from ...chat_search_index import get_chat_search_index_db_path
 from ...logging_config import get_logger
 from .. import resolve_wrapped_self_username
@@ -320,44 +320,7 @@ def _list_session_usernames(session_db_path: Path) -> list[str]:
 
 
 @functools.lru_cache(maxsize=1)
-def _load_wechat_emoji_table() -> dict[str, str]:
-    from ...chat_export_service import _resolve_ui_public_dir
-
-    ui_public_dir = _resolve_ui_public_dir()
-    if ui_public_dir is None:
-        return {}
-
-    path = Path(ui_public_dir) / "wxemoji" / "wechat-emojis.json"
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    return {
-        str(key): str(value)
-        for key, value in payload.items()
-        if str(key or "").strip() and str(value or "").strip()
-    }
-
-
-@functools.lru_cache(maxsize=1)
-def _load_wechat_emoji_regex() -> Optional[re.Pattern[str]]:
-    table = _load_wechat_emoji_table()
-    if not table:
-        return None
-    keys = sorted(table.keys(), key=len, reverse=True)
-    escaped = [re.escape(k) for k in keys if k]
-    if not escaped:
-        return None
-    try:
-        return re.compile(f"({'|'.join(escaped)})")
-    except Exception:
-        return None
-
-
-@functools.lru_cache(maxsize=1)
-def _load_wechat_text_emoji_matcher() -> tuple[Optional[re.Pattern[str]], dict[str, str]]:
+def _load_wechat_text_emoji_matcher() -> tuple[re.Pattern[str], dict[str, str]]:
     """
     Build a matcher for extracting WeChat "small yellow face" codes from `message_fts.text`.
 
@@ -370,8 +333,6 @@ def _load_wechat_text_emoji_matcher() -> tuple[Optional[re.Pattern[str]], dict[s
     """
 
     table = _load_wechat_emoji_table()
-    if not table:
-        return None, {}
 
     asset_to_keys: dict[str, list[str]] = {}
     for key, value in table.items():
@@ -398,21 +359,15 @@ def _load_wechat_text_emoji_matcher() -> tuple[Optional[re.Pattern[str]], dict[s
             continue
         norm_to_label.setdefault(nk, label)
 
+    if not norm_to_label:
+        raise UiAssetsUnavailableError("微信表情映射中没有可用于匹配的表情条目")
     keys_norm = sorted(norm_to_label.keys(), key=len, reverse=True)
-    escaped = [re.escape(k) for k in keys_norm if k]
-    if not escaped:
-        return None, norm_to_label
-    try:
-        return re.compile(f"({'|'.join(escaped)})"), norm_to_label
-    except Exception:
-        return None, norm_to_label
+    return re.compile(f"({'|'.join(re.escape(k) for k in keys_norm)})"), norm_to_label
 
 
 @functools.lru_cache(maxsize=1)
 def _load_wechat_expression_catalog() -> tuple[dict[int, str], dict[int, str]]:
     table = _load_wechat_emoji_table()
-    if not table:
-        return {}, {}
 
     id_to_asset: dict[int, str] = {}
     asset_to_keys: dict[str, list[str]] = {}
@@ -621,7 +576,7 @@ def compute_emoji_universe_stats(*, account_dir: Path, year: int) -> dict[str, A
                     if not txt:
                         continue
                     txt_norm = _normalize_index_text_for_emoji_match(txt)
-                    if emoji_regex is not None and txt_norm:
+                    if txt_norm:
                         for m in emoji_regex.finditer(txt_norm):
                             nk = str(m.group(0) or "")
                             k = emoji_norm_to_key.get(nk) or nk
@@ -815,7 +770,7 @@ def compute_emoji_universe_stats(*, account_dir: Path, year: int) -> dict[str, A
                         if not txt:
                             continue
                         txt_norm = _normalize_index_text_for_emoji_match(txt)
-                        if emoji_regex is not None and txt_norm:
+                        if txt_norm:
                             for m in emoji_regex.finditer(txt_norm):
                                 nk = str(m.group(0) or "")
                                 k = emoji_norm_to_key.get(nk) or nk
