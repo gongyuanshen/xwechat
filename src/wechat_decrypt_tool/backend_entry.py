@@ -10,7 +10,10 @@ def main() -> None:
         worker_main(sys.argv[2:])
         return
 
-    import uvicorn
+    if sys.argv[1:2] == ["--wait-and-spawn"]:
+        from wechat_decrypt_tool.server_lifecycle import run_delayed_restart_launcher
+
+        sys.exit(run_delayed_restart_launcher(sys.argv[2:]))
 
     from wechat_decrypt_tool.desktop_parent_watchdog import (
         start_desktop_parent_watchdog_from_env,
@@ -20,6 +23,7 @@ def main() -> None:
         read_effective_backend_host,
         read_effective_backend_port,
     )
+    from wechat_decrypt_tool.server_lifecycle import run_uvicorn_server
 
     if "--smoke-backend" in sys.argv[1:]:
         import json
@@ -40,7 +44,7 @@ def main() -> None:
     host, _ = read_effective_backend_host(default=default_backend_host())
     port, _ = read_effective_backend_port(default=10392)
     # Keep the application's file handlers and redaction filters.
-    uvicorn.run(app, host=host, port=port, log_level="info", log_config=None)
+    run_uvicorn_server(app, host=host, port=port, log_level="info", log_config=None)
 
 
 if __name__ == "__main__":

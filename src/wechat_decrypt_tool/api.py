@@ -1,6 +1,7 @@
 """xwechat FastAPI Web服务器"""
 
 import asyncio
+from contextlib import asynccontextmanager
 import mimetypes
 import os
 from pathlib import Path
@@ -22,6 +23,7 @@ logger = get_logger(__name__)
 request_logger = get_logger("wechat_decrypt_tool.request")
 
 from . import __version__ as APP_VERSION
+from .access_control import AccessControlMiddleware, LOCAL_CORS_ORIGIN_REGEX
 from .path_fix import PathFixRoute
 from .routers.chat import router as _chat_router
 from .routers.chat_contacts import router as _chat_contacts_router
@@ -32,6 +34,7 @@ from .routers.snapshot_refresh import router as _snapshot_refresh_router
 from .snapshot_refresh import SNAPSHOT_REFRESH
 from .snapshot_registry import SnapshotReadMiddleware, SnapshotRegistryError
 from .chat_export_service import UiAssetsUnavailableError
+from .runtime_settings import RuntimeSettingsError
 from .routers.import_decrypted import router as _import_decrypted_router
 from .routers.health import router as _health_router
 from .routers.admin import router as _admin_router
@@ -51,10 +54,25 @@ from .perf_trace import ChatRequestPerfMiddleware
 from .routers.biz import router as _biz_router
 from .routers.system import router as _system_router
 
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    from .ai.lifecycle import start_services, stop_services
+
+    try:
+        await start_services()
+        yield
+    finally:
+        try:
+            await asyncio.to_thread(SNAPSHOT_REFRESH.shutdown)
+        finally:
+            await stop_services()
+
+
 app = FastAPI(
     title="xwechat",
     description="xwechat 本地微信数据浏览、导出与交互工具",
     version=APP_VERSION,
+    lifespan=_lifespan,
 )
 
 app.add_middleware(SnapshotReadMiddleware)
@@ -72,14 +90,21 @@ async def _ui_assets_unavailable(request: Request, exc: UiAssetsUnavailableError
     return JSONResponse(status_code=503, content={"detail": str(exc), "type": type(exc).__name__})
 
 
+@app.exception_handler(RuntimeSettingsError)
+async def _runtime_settings_error(request: Request, exc: RuntimeSettingsError):
+    logger.error("Runtime settings error: %s", exc, exc_info=True)
+    return JSONResponse(status_code=500, content={"detail": str(exc), "type": type(exc).__name__})
+
+
 # 设置自定义路由类
 app.router.route_class = PathFixRoute
 
-# Enable CORS for React frontend
+# Enable CORS for local frontend origins only
 app.add_middleware(
     CORSMiddleware,
     expose_headers=['X-WCDA-AI-Trace', 'X-WCDA-AI-Diagnostic', 'Content-Disposition'],
-    allow_origins=["*"],
+    allow_origins=[],
+    allow_origin_regex=LOCAL_CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -95,6 +120,9 @@ async def _log_server_errors(request: Request, call_next):
 
 
 app.add_middleware(ChatRequestPerfMiddleware, logger=request_logger)
+# Starlette executes middleware in LIFO order: register AccessControlMiddleware
+# last so it runs first on incoming requests, ahead of CORSMiddleware.
+app.add_middleware(AccessControlMiddleware)
 
 
 from .routers.ai import router as _ai_router
@@ -198,15 +226,12 @@ class _SPAStaticFiles(StaticFiles):
     @classmethod
     def _apply_cache_headers(cls, path: str, response):
         normalized = cls._normalize_path(path)
-        try:
-            if cls._is_shell_path(normalized):
-                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-                response.headers["Pragma"] = "no-cache"
-                response.headers["Expires"] = "0"
-            elif normalized.startswith("_nuxt/"):
-                response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
-        except Exception:
-            pass
+        if cls._is_shell_path(normalized):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        elif normalized.startswith("_nuxt/"):
+            response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
         return response
 
     async def get_response(self, path: str, scope):  # type: ignore[override]
@@ -232,63 +257,53 @@ class _SPAStaticFiles(StaticFiles):
             return self._apply_cache_headers("index.html", FileResponse(str(self._fallback_index)))
 
 
-def _maybe_mount_frontend() -> None:
+def _maybe_mount_frontend(
+    target_app: FastAPI | None = None,
+    *,
+    default_ui_dir: Path | None = None,
+) -> Path | None:
     """Serve the generated Nuxt static site at `/` if present.
 
     This keeps web + desktop UI identical when the desktop shell (Electron) loads
     http://127.0.0.1:<port>/ from the same backend that serves `/api/*`.
     """
 
+    mount_app = app if target_app is None else target_app
     ui_dir_env = os.environ.get("WECHAT_TOOL_UI_DIR", "").strip()
 
-    candidates: list[Path] = []
     if ui_dir_env:
-        candidates.append(Path(ui_dir_env))
+        ui_dir = Path(ui_dir_env)
+        index_file = ui_dir / "index.html"
+        if not index_file.is_file():
+            raise UiAssetsUnavailableError(
+                f"WECHAT_TOOL_UI_DIR 指向的前端目录无效：缺少 {index_file}"
+            )
+    else:
+        # Repo default: `frontend/.output/public` after `npm --prefix frontend run generate`.
+        ui_dir = (
+            default_ui_dir
+            if default_ui_dir is not None
+            else Path(__file__).resolve().parents[2] / "frontend" / ".output" / "public"
+        )
+        if not (ui_dir / "index.html").is_file():
+            return None
 
-    # Repo default: `frontend/.output/public` after `npm --prefix frontend run generate`.
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates.append(repo_root / "frontend" / ".output" / "public")
-
-    ui_dir: Path | None = None
-    for p in candidates:
-        try:
-            if (p / "index.html").is_file():
-                ui_dir = p
-                break
-        except Exception:
-            continue
-
-    if not ui_dir:
-        return
-
-    try:
-        app.mount("/", _SPAStaticFiles(directory=str(ui_dir), html=True), name="ui")
-        logger.info("Serving frontend UI from: %s", ui_dir)
-    except Exception:
-        logger.exception("Failed to mount frontend UI from: %s", ui_dir)
+    mount_app.mount("/", _SPAStaticFiles(directory=str(ui_dir), html=True), name="ui")
+    logger.info("Serving frontend UI from: %s", ui_dir)
+    return ui_dir
 
 
 _maybe_mount_frontend()
 
 
-@app.on_event("startup")
-async def _startup_background_jobs() -> None:
-    from .ai.lifecycle import start_services
-    await start_services()
-
-
-@app.on_event("shutdown")
-async def _shutdown_background_jobs() -> None:
-    from .ai.lifecycle import stop_services
-    await asyncio.to_thread(SNAPSHOT_REFRESH.shutdown)
-    await stop_services()
-
-
 if __name__ == "__main__":
-    import uvicorn
+    from .runtime_settings import (
+        default_backend_host,
+        read_effective_backend_host,
+        read_effective_backend_port,
+    )
+    from .server_lifecycle import run_uvicorn_server
 
-    from .runtime_settings import default_backend_host, read_effective_backend_port
-
-    host = os.environ.get("WECHAT_TOOL_HOST", default_backend_host())
+    host, _ = read_effective_backend_host(default=default_backend_host())
     port, _ = read_effective_backend_port(default=10392)
-    uvicorn.run(app, host=host, port=port, log_config=None)
+    run_uvicorn_server(app, host=host, port=port, log_config=None)

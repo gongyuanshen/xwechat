@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from ..access_control import require_strict_local_request
 from ..ai.providers import PRESETS, ProviderFailure, public_profile, validate_url
 from ..ai.schemas import Defaults, ModelListInput, ProviderInput, RuleInput, TaskInput
 from ..ai.service import get_ai_service
@@ -17,18 +16,8 @@ import logging
 from ..chat_helpers import _resolve_account_dir
 
 
-def local_only(request: Request):
-    try:
-        if not ipaddress.ip_address(request.client.host).is_loopback:
-            raise ValueError()
-        origin = request.headers.get("origin")
-        if origin and urlparse(origin).hostname not in {"localhost", "127.0.0.1", "::1"}:
-            raise ValueError()
-        host = request.url.hostname
-        if host not in {"localhost", "127.0.0.1", "::1"}:
-            raise ValueError()
-    except (ValueError, AttributeError):
-        raise HTTPException(403, "AI 服务仅允许本机应用访问") from None
+def local_only(request: Request) -> None:
+    require_strict_local_request(request, detail="AI 服务仅允许本机应用访问")
 
 
 router = APIRouter(prefix="/api/ai", dependencies=[Depends(local_only)])

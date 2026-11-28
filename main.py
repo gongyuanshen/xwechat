@@ -32,6 +32,7 @@ from wechat_decrypt_tool.runtime_settings import (
     read_effective_backend_host,
     read_effective_backend_port,
 )
+from wechat_decrypt_tool.server_lifecycle import run_uvicorn_server
 
 
 def main():
@@ -72,22 +73,30 @@ def main():
     enable_reload = os.environ.get("WECHAT_TOOL_RELOAD", "0") == "1"
 
     # 启动API服务
-    uvicorn.run(
-        "wechat_decrypt_tool.api:app",
-        host=host,
-        port=port,
-        reload=enable_reload,
-        reload_dirs=[str(repo_root / "src")] if enable_reload else None,
-        reload_excludes=[
-            "output/*",
-            "output/**",
-            "frontend/*",
-            "frontend/**",
-            ".venv/*",
-            ".venv/**",
-        ] if enable_reload else None,
-        log_level="info"
-    )
+    if enable_reload:
+        uvicorn.run(
+            "wechat_decrypt_tool.api:app",
+            host=host,
+            port=port,
+            reload=True,
+            reload_dirs=[str(repo_root / "src")],
+            reload_excludes=[
+                "output/*",
+                "output/**",
+                "frontend/*",
+                "frontend/**",
+                ".venv/*",
+                ".venv/**",
+            ],
+            log_level="info",
+        )
+    else:
+        run_uvicorn_server(
+            "wechat_decrypt_tool.api:app",
+            host=host,
+            port=port,
+            log_level="info",
+        )
 
 if __name__ == "__main__":
     main()

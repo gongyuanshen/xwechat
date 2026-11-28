@@ -40,9 +40,9 @@ from ..data_source import normalize_data_source
 from ..snapshot_registry import create_account_task, resolve_account_database_dir
 from ..media_helpers import _convert_silk_to_browser_audio, _detect_image_extension, _detect_image_media_type, _ensure_decrypted_resource_for_md5, _find_ffmpeg_executable, _fallback_search_media_by_file_id, _fallback_search_media_by_md5, _get_decrypted_resource_path, _get_resource_dir, _guess_media_type_by_path, _is_probably_valid_image, _iter_emoji_source_candidates, _iter_media_source_candidates, _order_media_candidates, _read_and_maybe_decrypt_media, _resolve_account_db_storage_dir, _resolve_account_dir, _resolve_account_wxid_dir, _resolve_media_path_for_kind, _resolve_media_path_from_hardlink, _try_find_decrypted_resource, _try_strip_media_prefix, _validate_image_bytes
 from ..chat_helpers import _extract_md5_from_packed_info, _load_contact_rows, _pick_avatar_url
+from ..access_control import require_local_request
 from ..path_fix import PathFixRoute
 from ..perf_trace import create_perf_trace
-from ..runtime_settings import remote_calls_enabled
 
 from ..voice_transcription import (
     VOICE_MODEL_DOWNLOAD_MANAGER,
@@ -96,40 +96,14 @@ class VoiceTranscriptionBatchRequest(BaseModel):
     )
 
 
-def _is_loopback_host(host: str) -> bool:
-    value = str(host or "").strip().strip("[]")
-    if value.lower() == "localhost":
-        return True
-    try:
-        address = ipaddress.ip_address(value)
-        return bool(
-            address.is_loopback
-            or (
-                isinstance(address, ipaddress.IPv6Address)
-                and address.ipv4_mapped
-                and address.ipv4_mapped.is_loopback
-            )
-        )
-    except ValueError:
-        return False
-
-
 def _require_local_voice_mutation(request: Request) -> None:
     """Block cross-origin/LAN callers from expensive or destructive voice operations."""
 
-    if remote_calls_enabled():
-        return
-
-    client_host = str(getattr(request.client, "host", "") or "").strip()
-    if not _is_loopback_host(client_host):
-        raise HTTPException(status_code=403, detail="仅允许本机执行语音模型和批量转写操作。")
-
-    origin = str(request.headers.get("origin") or "").strip()
-    if not origin:
-        return
-    parsed = urlparse(origin)
-    if parsed.scheme not in {"http", "https"} or not _is_loopback_host(parsed.hostname or ""):
-        raise HTTPException(status_code=403, detail="拒绝非本机页面发起语音模型和批量转写操作。")
+    require_local_request(
+        request,
+        allow_remote_opt_in=True,
+        detail="仅允许本机执行语音模型和批量转写操作。",
+    )
 
 
 def _avatar_trace_enabled() -> bool:

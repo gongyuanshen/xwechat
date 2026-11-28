@@ -62,6 +62,7 @@ def _prepare_whisper_cuda_libraries() -> None:
             logger.debug("可选 CUDA 库目录不可用，继续使用系统运行库。", exc_info=True)
 
 from .runtime_settings import (
+    RuntimeSettingsError,
     VOICE_TRANSCRIPTION_DEVICE_CPU,
     VOICE_TRANSCRIPTION_DEVICE_CUDA,
     read_effective_voice_transcription_device,
@@ -1783,7 +1784,7 @@ class VoiceTranscriptionService:
             self._active_device = config.device
             self._active_compute_type = config.compute_type
             return self._model
-        except VoiceTranscriptionError:
+        except (VoiceTranscriptionError, RuntimeSettingsError):
             raise
         except ImportError as exc:
             raise VoiceTranscriptionError(
@@ -2180,6 +2181,10 @@ def _voice_model_download_error_message(exc: Exception) -> str:
         seen.add(id(current))
         chain.append(current)
         current = current.__cause__ or current.__context__
+
+    runtime_error = next((item for item in chain if isinstance(item, RuntimeSettingsError)), None)
+    if runtime_error is not None:
+        return f"运行时配置读取失败：{runtime_error}"
 
     if any(isinstance(item, OSError) and item.errno == errno.ENOSPC for item in chain):
         return "模型下载失败：磁盘空间不足。"
@@ -3196,7 +3201,7 @@ def delete_voice_model(model: str) -> dict[str, Any]:
                 "deleted": True,
                 "freedBytes": freed_bytes,
             }
-        except VoiceTranscriptionError:
+        except (VoiceTranscriptionError, RuntimeSettingsError):
             raise
         except Exception as exc:
             raise VoiceTranscriptionError("model_delete_failed", f"模型删除失败：{type(exc).__name__}") from exc
